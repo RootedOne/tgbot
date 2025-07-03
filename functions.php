@@ -4,6 +4,7 @@
 
 define('STATE_FILE', 'user_states.json');
 define('PRODUCTS_FILE', 'products.json');
+define('USER_PURCHASES_FILE', 'user_purchases.json'); // Added for user purchases
 
 // ===================================================================
 //  STATE & DATA MANAGEMENT FUNCTIONS
@@ -13,6 +14,21 @@ function writeJsonFile($filename, $data) { file_put_contents($filename, json_enc
 function setUserState($user_id, $state) { $states = readJsonFile(STATE_FILE); $states[$user_id] = $state; writeJsonFile(STATE_FILE, $states); }
 function getUserState($user_id) { $states = readJsonFile(STATE_FILE); return $states[$user_id] ?? null; }
 function clearUserState($user_id) { $states = readJsonFile(STATE_FILE); if (isset($states[$user_id])) { unset($states[$user_id]); writeJsonFile(STATE_FILE, $states); } }
+
+function recordPurchase($user_id, $product_name, $price) {
+    $purchases = readJsonFile(USER_PURCHASES_FILE);
+    $new_purchase = [
+        'product_name' => $product_name,
+        'price' => $price,
+        'date' => date('Y-m-d H:i:s')
+    ];
+    if (!isset($purchases[$user_id])) {
+        $purchases[$user_id] = [];
+    }
+    $purchases[$user_id][] = $new_purchase;
+    writeJsonFile(USER_PURCHASES_FILE, $purchases);
+}
+
 $products = readJsonFile(PRODUCTS_FILE); // Load all products into a global variable
 
 // ===================================================================
@@ -41,8 +57,29 @@ function processCallbackQuery($callback_query) {
 
     answerCallbackQuery($callback_query->id);
 
+    // --- MY PRODUCTS ---
+    if ($data === 'my_products') {
+        $all_purchases = readJsonFile(USER_PURCHASES_FILE);
+        $response_text = "➖➖➖➖➖➖➖➖➖➖➖➖\n"; // Top border
+        if (isset($all_purchases[$user_id]) && count($all_purchases[$user_id]) > 0) {
+            $response_text .= "🛍️ **Your Purchased Products:**\n\n";
+            foreach ($all_purchases[$user_id] as $purchase) {
+                $response_text .= "▪️ **Product:** " . htmlspecialchars($purchase['product_name']) . "\n";
+                $response_text .= "▪️ **Price:** $" . htmlspecialchars($purchase['price']) . "\n";
+                $response_text .= "▪️ **Date:** " . htmlspecialchars($purchase['date']) . "\n";
+                $response_text .= "➖➖➖➖➖➖➖➖➖➖➖➖\n"; // Separator for each product
+            }
+        } else {
+            $response_text .= "You haven't purchased any products yet. Feel free to browse our shop!\n";
+            $response_text .= "➖➖➖➖➖➖➖➖➖➖➖➖\n"; // Bottom border
+        }
+        // Send as a new message. Consider editing the existing menu message if preferred.
+        sendMessage($chat_id, $response_text, null, 'HTML');
+        // Optionally, you might want to show the main menu again below the product list
+        // For now, just sending the list. User can use /start or back buttons if they exist.
+    }
     // --- SUPPORT FLOW ---
-    if ($data === 'support') {
+    elseif ($data === 'support') {
         $text = "Are you sure you want to contact support? This will send your next message to the admins.";
         $keyboard = json_encode(['inline_keyboard' => [
             [['text' => '✅ Yes, Continue', 'callback_data' => 'support_confirm']],
@@ -86,10 +123,10 @@ function processCallbackQuery($callback_query) {
             $all_products = readJsonFile(PRODUCTS_FILE);
             unset($all_products[$category_key][$product_id]);
             writeJsonFile(PRODUCTS_FILE, $all_products);
-            $products = $all_products;
+            $products = $all_products; // Refresh global products variable
             $category_name = ucfirst(str_replace('_plan', '', $category_key));
             $keyboard = ['inline_keyboard' => []];
-            foreach ($all_products[$category_key] as $id => $details) { $keyboard['inline_keyboard'][] = [['text' => "❌ Remove: {$details['name']}", 'callback_data' => "admin_remove_{$category_key}_{$id}"]]; }
+            foreach (($all_products[$category_key] ?? []) as $id => $details) { $keyboard['inline_keyboard'][] = [['text' => "❌ Remove: {$details['name']}", 'callback_data' => "admin_remove_{$category_key}_{$id}"]]; }
             $keyboard['inline_keyboard'][] = [['text' => '➕ Add New Product', 'callback_data' => "admin_add_{$category_key}"]];
             $keyboard['inline_keyboard'][] = [['text' => '« Back to Categories', 'callback_data' => 'admin_manage_products']];
             editMessageText($chat_id, $message_id, "Product removed. Managing <b>$category_name</b> products:", json_encode($keyboard));
@@ -98,12 +135,18 @@ function processCallbackQuery($callback_query) {
     // --- Admin Accept/Reject Payment ---
     elseif (preg_match('/^(accept|reject)_payment_(\d+)$/', $data, $matches)) {
         if (!in_array($user_id, ADMINS)) return;
-        
+
         $action = $matches[1];
-        $customer_id = $matches[2];
+        $customer_id = (int)$matches[2]; // Ensure customer_id is an integer
+        $customer_state = getUserState($customer_id); // Get state before clearing
 
         if ($action === 'accept') {
-            sendMessage($customer_id, "🎉 Your payment has been approved! Your product/service is now active.");
+            if ($customer_state && isset($customer_state['product_name']) && isset($customer_state['price'])) {
+                recordPurchase($customer_id, $customer_state['product_name'], $customer_state['price']);
+                 sendMessage($customer_id, "🎉 Your payment has been approved! Your product/service is now active. You can view your purchases with /myprod or the 'My Products' button.");
+            } else {
+                 sendMessage($customer_id, "🎉 Your payment has been approved! (Details not found, but purchase recorded if possible). You can view your purchases with /myprod or the 'My Products' button.");
+            }
             $original_caption = $callback_query->message->caption;
             $new_caption = $original_caption . "\n\n**Decision:** ✅ Payment Approved\n\nTo talk to this user, send: `/s{$customer_id}`";
             editMessageCaption($chat_id, $message_id, $new_caption, null, 'Markdown');
@@ -143,7 +186,12 @@ function processCallbackQuery($callback_query) {
 
         if (isset($products[$product_type][$product_id])) {
             $product = $products[$product_type][$product_id];
-            setUserState($user_id, ['status' => 'awaiting_receipt', 'message_id' => $message_id, 'product_name' => $product['name'], 'price' => $product['price']]);
+            setUserState($user_id, [
+                'status' => 'awaiting_receipt',
+                'message_id' => $message_id,
+                'product_name' => $product['name'],
+                'price' => $product['price']
+            ]);
             $payment_info_text = "Please transfer **$$product[price]** to the card below.\n\nCard Number: `6666-1111-6666-1111`\nCard Holder: `Ali Azad`\n\nAfter payment, send the screenshot of your receipt to this chat.";
             $keyboard = json_encode(['inline_keyboard' => [[['text' => 'Cancel Purchase', 'callback_data' => 'back_to_main']]]]);
             editMessageText($chat_id, $message_id, $payment_info_text, $keyboard, 'Markdown');
@@ -154,5 +202,11 @@ function processCallbackQuery($callback_query) {
         $welcome_text = "Welcome back to the main menu.";
         $keyboard = in_array($user_id, ADMINS) ? $adminMenuKeyboard : $mainMenuKeyboard;
         editMessageText($chat_id, $message_id, $welcome_text, $keyboard);
+        $user_state = getUserState($user_id);
+        if (is_array($user_state) && ( ($user_state['status'] ?? null) === 'awaiting_support_message' || ($user_state['status'] ?? null) === 'awaiting_receipt') ) {
+            clearUserState($user_id);
+        }
     }
 }
+
+?>

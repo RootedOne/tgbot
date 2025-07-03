@@ -18,7 +18,7 @@ if (!$update) { exit(); }
 // --- PRIORITY 1: Handle button presses (callback queries) ---
 if (isset($update->callback_query)) {
     processCallbackQuery($update->callback_query);
-    exit(); 
+    exit();
 }
 
 // --- PRIORITY 2: Handle regular messages ---
@@ -33,7 +33,7 @@ if (isset($update->message)) {
     // --- Admin is adding a product ---
     if ($is_admin && is_array($user_state) && strpos($user_state['status'], 'admin_adding_') === 0) {
         $category_key = $user_state['category'];
-        
+
         switch ($user_state['status']) {
             case 'admin_adding_name':
                 $user_state['name'] = $text;
@@ -69,10 +69,10 @@ if (isset($update->message)) {
                 sendMessage($user_id, "☑️ Chat ended with user $current_chat_partner.");
                 sendMessage($current_chat_partner, "☑️ The support chat has been ended by the admin.");
             }
-        } 
+        }
         elseif ($is_admin) {
             bot('copyMessage', ['from_chat_id' => $chat_id, 'chat_id' => $user_state['chatting_with'], 'message_id' => $message->message_id]);
-        } 
+        }
         else {
             sendMessage($chat_id, "↳ Your message has been sent to the admin.");
             bot('copyMessage', ['from_chat_id' => $chat_id, 'chat_id' => $user_state['chatting_with'], 'message_id' => $message->message_id]);
@@ -82,7 +82,7 @@ if (isset($update->message)) {
     else {
         // --- **MODIFIED**: Handle a pending support message ---
         if (is_array($user_state) && ($user_state['status'] ?? null) === 'awaiting_support_message') {
-            
+
             // Remove the "Cancel" button from the previous message
             if(isset($user_state['message_id'])){
                 editMessageReplyMarkup($chat_id, $user_state['message_id'], null);
@@ -118,6 +118,21 @@ if (isset($update->message)) {
             $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard;
             sendMessage($chat_id, $welcome_text, $keyboard);
         }
+        // User sends /myprod
+        elseif ($text === "/myprod") {
+            $all_purchases = readJsonFile(USER_PURCHASES_FILE);
+            if (isset($all_purchases[$user_id]) && count($all_purchases[$user_id]) > 0) {
+                $response_text = "🛍️ **Your Purchased Products:**\n\n";
+                foreach ($all_purchases[$user_id] as $purchase) {
+                    $response_text .= "▪️ **Product:** " . htmlspecialchars($purchase['product_name']) . "\n";
+                    $response_text .= "▪️ **Price:** $" . htmlspecialchars($purchase['price']) . "\n";
+                    $response_text .= "▪️ **Date:** " . htmlspecialchars($purchase['date']) . "\n\n";
+                }
+            } else {
+                $response_text = "You haven't purchased any products yet. Feel free to browse our shop!";
+            }
+            sendMessage($chat_id, $response_text, null, 'HTML');
+        }
         // User sends a photo receipt
         elseif (isset($message->photo)) {
             $state = getUserState($user_id);
@@ -133,5 +148,11 @@ if (isset($update->message)) {
                 sendMessage($chat_id, "I've received your photo, but I wasn't expecting one. If you need help, please use the Support button.");
             }
         }
+        // Fallback for other messages - uncomment if you want to notify user for unrecognized commands
+        // else {
+        //    sendMessage($chat_id, "Sorry, I didn't understand that command. Please use the menu or type /start.");
+        // }
     }
 }
+
+?>
