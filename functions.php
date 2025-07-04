@@ -167,7 +167,18 @@ function processCallbackQuery($callback_query) {
             ]);
             editMessageText($chat_id, $message_id, $admin_panel_text, $admin_panel_keyboard);
         }
-        elseif ($data === 'admin_prod_management') { /* ... shows product mgt menu ... */ }
+        elseif ($data === 'admin_prod_management') {
+            $prod_mgt_text = "📦 Product Management 📦\n\nSelect an action:";
+            $prod_mgt_keyboard = json_encode([
+                'inline_keyboard' => [
+                    [['text' => "➕ Add Product", 'callback_data' => 'admin_add_prod_select_category']], // Existing handler
+                    [['text' => "✏️ Edit Product", 'callback_data' => 'admin_edit_prod_select_category']], // Existing handler (placeholder)
+                    [['text' => "➖ Remove Product", 'callback_data' => 'admin_remove_prod_select_category']], // Existing handler (placeholder)
+                    [['text' => "« Back to Admin Panel", 'callback_data' => 'admin_panel']]
+                ]
+            ]);
+            editMessageText($chat_id, $message_id, $prod_mgt_text, $prod_mgt_keyboard);
+        }
         elseif ($data === 'admin_add_prod_select_category') { /* ... selects category for new product ... */ }
         elseif (strpos($data, 'admin_ap_cat_') === 0) { /* ... sets state for adding product name ... */ }
         elseif (strpos($data, 'admin_set_prod_type_') === 0) { /* ... sets product type for new product ... */ }
@@ -288,7 +299,7 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, $plan_info, $keyboard);
         }
      }
-    elseif (preg_match('/^confirm_buy_(.+?)_(.+)$/', $data, $matches)) {
+    elseif (preg_match('/^confirm_buy_(.+)_(.+)$/', $data, $matches)) { // Removed '?' to make the first group greedy
         $product_type_key = $matches[1]; $product_id = $matches[2];
         $product = getProductDetails($product_type_key, $product_id);
         if ($product) {
@@ -301,9 +312,7 @@ function processCallbackQuery($callback_query) {
             $keyboard = json_encode(['inline_keyboard' => [[['text' => 'Cancel Purchase', 'callback_data' => 'back_to_main']]]]);
             editMessageText($chat_id, $message_id, $payment_info_text, $keyboard, 'Markdown');
         }
-        // NOTE: The else block with the debug message has been removed.
-        // If $product is null, nothing will happen, which is the original problem symptom.
-        // The fix is expected in the updated getProductDetails function.
+        // Debug message removed
     }
     elseif ($data === 'back_to_main') {
         $first_name = $callback_query->from->first_name; // Get user's first name for a personalized message
