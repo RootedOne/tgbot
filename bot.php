@@ -18,7 +18,7 @@ if (!$update) { exit(); }
 // --- PRIORITY 1: Handle button presses (callback queries) ---
 if (isset($update->callback_query)) {
     processCallbackQuery($update->callback_query);
-    exit();
+    exit(); 
 }
 
 // --- PRIORITY 2: Handle regular messages ---
@@ -27,36 +27,131 @@ if (isset($update->message)) {
     $chat_id = $message->chat->id;
     $user_id = $message->from->id;
     $text = $message->text ?? null;
-    $is_admin = in_array($user_id, ADMINS);
+    $is_admin = in_array($user_id, getAdminIds()); // Use new function
     $user_state = getUserState($user_id);
 
-    // --- Admin is adding a product ---
-    if ($is_admin && is_array($user_state) && strpos($user_state['status'], 'admin_adding_') === 0) {
-        $category_key = $user_state['category'];
+    // Check if user is banned
+    $user_specific_data = getUserData($user_id);
+    if ($user_specific_data['is_banned']) {
+        sendMessage($chat_id, "⚠️ You are banned from using this bot.");
+        exit();
+    }
 
+    // --- Admin is adding a product (New Flow) ---
+    if ($is_admin && is_array($user_state) && 
+        in_array($user_state['status'], [
+            'admin_adding_prod_name', 
+            'admin_adding_prod_price', 
+            'admin_adding_prod_info', 
+            'admin_adding_prod_id', 
+            'admin_adding_prod_instant_items'
+            ])
+    ) {
+        // This whole block will be new logic for the add product flow
         switch ($user_state['status']) {
-            case 'admin_adding_name':
-                $user_state['name'] = $text;
-                $user_state['status'] = 'admin_adding_price';
+            case 'admin_adding_prod_name': // Name provided by admin
+                $user_state['new_product_name'] = $text;
+                $user_state['status'] = 'admin_adding_prod_type_prompt'; // Callback will handle type selection
                 setUserState($user_id, $user_state);
-                sendMessage($chat_id, "Great. Now enter the price (numbers only):");
+                // Prompt for product type (via callback in functions.php)
+                promptForProductType($chat_id, $user_id, $user_state['category_key'], $text /* product name for context */);
                 break;
-            case 'admin_adding_price':
-                if (!is_numeric($text)) { sendMessage($chat_id, "Invalid price. Please enter numbers only."); break; }
-                $user_state['price'] = $text;
-                $user_state['status'] = 'admin_adding_id';
+
+            case 'admin_adding_prod_price': // Price provided by admin (after type selected via callback)
+                if (!is_numeric($text) || $text < 0) {
+                    sendMessage($chat_id, "Invalid price. Please enter a non-negative number.");
+                    // Remain in this state, or send back to type selection if needed
+                    // For simplicity, just re-prompt for price.
+                    sendMessage($chat_id, "Enter the price for '{$user_state['new_product_name']}': (numbers only)");
+                    break;
+                }
+                $user_state['new_product_price'] = $text;
+                $user_state['status'] = 'admin_adding_prod_info_prompt';
                 setUserState($user_id, $user_state);
-                sendMessage($chat_id, "Perfect. Now enter a unique ID for this product (e.g., 'family' or '7'):");
+                sendMessage($chat_id, "Enter the product information/description for '{$user_state['new_product_name']}' (this will be shown on the confirmation page):");
                 break;
-            case 'admin_adding_id':
-                $user_state['id'] = $text;
-                $all_products = readJsonFile(PRODUCTS_FILE);
-                $all_products[$category_key][$user_state['id']] = ['name' => $user_state['name'], 'price' => $user_state['price']];
-                writeJsonFile(PRODUCTS_FILE, $all_products);
+
+            case 'admin_adding_prod_info': // Info provided by admin
+                $user_state['new_product_info'] = $text;
+                setUserState($user_id, $user_state); // Save info
+                // Now, branch based on stored type
+                if ($user_state['new_product_type'] === 'instant') {
+                    $user_state['status'] = 'admin_adding_prod_instant_items';
+                    $user_state['new_product_items_buffer'] = []; // Initialize buffer for items
+                    setUserState($user_id, $user_state);
+                    sendMessage($chat_id, "Product type: Instant Delivery.\nPlease send each deliverable item as a separate message (e.g., a code, a link, account details).\nType /doneitems when you have added all items for '{$user_state['new_product_name']}'.");
+                } else { // Manual type
+                    $user_state['status'] = 'admin_adding_prod_id';
+                    setUserState($user_id, $user_state);
+                    sendMessage($chat_id, "Product type: Manual Delivery.\nEnter a unique ID for '{$user_state['new_product_name']}' (e.g., 'product_xyz' or a number):");
+                }
+                break;
+            
+            case 'admin_adding_prod_instant_items': // Admin is sending items for an instant product
+                if ($text === '/doneitems') {
+                    // All items sent, now ask for product ID
+                    $user_state['status'] = 'admin_adding_prod_id';
+                    setUserState($user_id, $user_state);
+                    sendMessage($chat_id, "All items for '{$user_state['new_product_name']}' received (" . count($user_state['new_product_items_buffer']) . " items).\nNow, enter a unique ID for this product:");
+                } else {
+                    // Add the received text as an item
+                    $user_state['new_product_items_buffer'][] = $text;
+                    setUserState($user_id, $user_state);
+                    sendMessage($chat_id, "Item added: \"$text\". Send the next item, or type /doneitems if finished.");
+                }
+                break;
+
+            case 'admin_adding_prod_id': // ID provided by admin (for both manual and instant after items)
+                $product_id = trim($text);
+                if (empty($product_id)) {
+                    sendMessage($chat_id, "Product ID cannot be empty. Please enter a unique ID:");
+                    break;
+                }
+                // Check if product ID already exists in this category
+                global $products;
+                if (isset($products[$user_state['category_key']][$product_id])) {
+                    sendMessage($chat_id, "Product ID '{$product_id}' already exists in this category. Please enter a different unique ID:");
+                    break;
+                }
+
+                $new_product_data = [
+                    'name' => $user_state['new_product_name'],
+                    'price' => $user_state['new_product_price'],
+                    'type' => $user_state['new_product_type'],
+                    'info' => $user_state['new_product_info'],
+                    'items' => ($user_state['new_product_type'] === 'instant' ? $user_state['new_product_items_buffer'] : [])
+                ];
+                
+                $products[$user_state['category_key']][$product_id] = $new_product_data;
+                writeJsonFile(PRODUCTS_FILE, $products); // Save all products
+                
+                sendMessage($chat_id, "✅ Product '{$user_state['new_product_name']}' (ID: {$product_id}) added successfully to category '{$user_state['category_key']}'!");
                 clearUserState($user_id);
-                sendMessage($chat_id, "✅ Product '{$user_state['name']}' added successfully!");
+                // Optionally, show the product management menu again
+                // For now, just clear state. Admin can navigate back.
                 break;
         }
+    }
+    // --- Admin is adding a product (OLD FLOW - to be phased out) ---
+    // This is the old logic for admin_adding_name, admin_adding_price, admin_adding_id
+    // It should be distinguished from the new flow states. We can prefix new states e.g. admin_newprod_name
+    // For now, the condition above `strpos($user_state['status'], 'admin_adding_') === 0 && $user_state['status'] !== 'admin_adding_prod_manual'`
+    // might catch both if not careful with state names.
+    // Let's assume the new states like 'admin_adding_prod_name' are distinct enough for now.
+    // The old flow was simpler and didn't have type/info/items.
+
+    // --- Admin is manually adding a product for a user (after /addprod <USERID>) ---
+    elseif ($is_admin && is_array($user_state) && $user_state['status'] === 'admin_adding_prod_manual') {
+        $target_user_id = $user_state['target_user_id'];
+        $product_description = $text; // The admin's message is the product description
+
+        // Record the manually added product. Using a distinct "price" to identify it if needed later.
+        // The product_description will be used as the 'name' in user_purchases.json
+        recordPurchase($target_user_id, "🎁 " . $product_description, "Manually Added"); 
+
+        clearUserState($user_id); // $user_id here is the admin's ID
+        sendMessage($chat_id, "✅ Custom product '{$product_description}' has been added to user `{$target_user_id}`'s purchases.", null, 'Markdown');
+        sendMessage($target_user_id, "🎁 A new item has been manually added to your purchases by an admin: '{$product_description}'. You can see it in 'My Products'.");
     }
     // --- User is in a direct support chat ---
     elseif (isset($user_state['chatting_with'])) {
@@ -69,10 +164,10 @@ if (isset($update->message)) {
                 sendMessage($user_id, "☑️ Chat ended with user $current_chat_partner.");
                 sendMessage($current_chat_partner, "☑️ The support chat has been ended by the admin.");
             }
-        }
+        } 
         elseif ($is_admin) {
             bot('copyMessage', ['from_chat_id' => $chat_id, 'chat_id' => $user_state['chatting_with'], 'message_id' => $message->message_id]);
-        }
+        } 
         else {
             sendMessage($chat_id, "↳ Your message has been sent to the admin.");
             bot('copyMessage', ['from_chat_id' => $chat_id, 'chat_id' => $user_state['chatting_with'], 'message_id' => $message->message_id]);
@@ -82,7 +177,7 @@ if (isset($update->message)) {
     else {
         // --- **MODIFIED**: Handle a pending support message ---
         if (is_array($user_state) && ($user_state['status'] ?? null) === 'awaiting_support_message') {
-
+            
             // Remove the "Cancel" button from the previous message
             if(isset($user_state['message_id'])){
                 editMessageReplyMarkup($chat_id, $user_state['message_id'], null);
@@ -96,12 +191,30 @@ if (isset($update->message)) {
             $user_info .= "Message:\n" . htmlspecialchars($text);
 
             // Send to admin
-            $admin_id = ADMINS[0];
-            sendMessage($admin_id, $user_info, null, 'Markdown');
-
+            $admin_ids = getAdminIds();
+            if(!empty($admin_ids)){ // Ensure there is at least one admin
+                $admin_id_to_send_to = $admin_ids[0]; // Send to the first admin in the list
+                sendMessage($admin_id_to_send_to, $user_info, null, 'Markdown');
+            } else {
+                // Optional: Log that no admins are configured to receive support messages
+                error_log("No admins configured to receive support message from user $user_id");
+            }
+            
             // Confirm to user and clear state
             sendMessage($chat_id, "✅ Thank you! Your message has been sent to the support team.");
             clearUserState($user_id);
+        }
+        // Admin command: /addprod <USERID>
+        elseif ($is_admin && preg_match('/^\/addprod\s+(\d+)$/', $text, $matches)) {
+            $user_id_to_add_to = $matches[1];
+            // Check if target user ID is valid (e.g., is a number, maybe check if user exists if you have a user list)
+            // For now, just assume it's a valid ID if it's numeric.
+            if (is_numeric($user_id_to_add_to)) {
+                setUserState($user_id, ['status' => 'admin_adding_prod_manual', 'target_user_id' => $user_id_to_add_to]);
+                sendMessage($chat_id, "Please send the product description/name for user `{$user_id_to_add_to}`. This text will appear as the item in their 'My Products' list.", null, 'Markdown');
+            } else {
+                sendMessage($chat_id, "Invalid User ID provided. Usage: `/addprod <USERID>`");
+            }
         }
         // Admin wants to start a chat
         elseif ($is_admin && preg_match('/^\/s(\d+)$/', $text, $matches)) {
@@ -117,21 +230,6 @@ if (isset($update->message)) {
             $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome to the shop.\n\nPlease select an option:";
             $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard;
             sendMessage($chat_id, $welcome_text, $keyboard);
-        }
-        // User sends /myprod
-        elseif ($text === "/myprod") {
-            $all_purchases = readJsonFile(USER_PURCHASES_FILE);
-            if (isset($all_purchases[$user_id]) && count($all_purchases[$user_id]) > 0) {
-                $response_text = "🛍️ **Your Purchased Products:**\n\n";
-                foreach ($all_purchases[$user_id] as $purchase) {
-                    $response_text .= "▪️ **Product:** " . htmlspecialchars($purchase['product_name']) . "\n";
-                    $response_text .= "▪️ **Price:** $" . htmlspecialchars($purchase['price']) . "\n";
-                    $response_text .= "▪️ **Date:** " . htmlspecialchars($purchase['date']) . "\n\n";
-                }
-            } else {
-                $response_text = "You haven't purchased any products yet. Feel free to browse our shop!";
-            }
-            sendMessage($chat_id, $response_text, null, 'HTML');
         }
         // User sends a photo receipt
         elseif (isset($message->photo)) {
