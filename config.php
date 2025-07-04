@@ -3,10 +3,10 @@
 // All bot configurations.
 
 // --- Bot Token ---
-define('API_TOKEN', '7191984881:AAHP_mD54kaJC6rUk28mLFpcPB6Yf2iaXRA'); // Replace with your actual token
+define('API_TOKEN', '7191984881:AAH1BBX3S6SKNCKGkjKnKZj2OTto_bfg2ZI'); // Replace with your actual token
 
 // --- Admin Configuration ---
-const ADMINS = [2045651875]; // Replace with your numeric Telegram User ID
+// Admin list is now managed in bot_config_data.json
 
 // --- Main Menu Keyboard ---
 $mainMenuKeyboard = json_encode([
