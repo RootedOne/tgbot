@@ -60,25 +60,39 @@ function processCallbackQuery($callback_query) {
     // --- MY PRODUCTS ---
     if ($data === 'my_products') {
         $all_purchases = readJsonFile(USER_PURCHASES_FILE);
-        $response_text = "➖➖➖➖➖➖➖➖➖➖➖➖\n"; // Top border
+        $inline_keyboard = [];
+        $response_title = "🛍️ Your Purchased Products:";
+
         if (isset($all_purchases[$user_id]) && count($all_purchases[$user_id]) > 0) {
-            $response_text .= "🛍️ **Your Purchased Products:**\n\n";
-            foreach ($all_purchases[$user_id] as $purchase) {
-                $response_text .= "▪️ **Product:** " . htmlspecialchars($purchase['product_name']) . "\n";
-                $response_text .= "▪️ **Price:** $" . htmlspecialchars($purchase['price']) . "\n";
-                $response_text .= "▪️ **Date:** " . htmlspecialchars($purchase['date']) . "\n";
-                $response_text .= "➖➖➖➖➖➖➖➖➖➖➖➖\n"; // Separator for each product
+            foreach ($all_purchases[$user_id] as $index => $purchase) {
+                $product_name = htmlspecialchars($purchase['product_name']);
+                $price = htmlspecialchars($purchase['price']);
+                $date = htmlspecialchars($purchase['date']);
+
+                // For manually added items, we might check for a specific price or a flag in the future
+                // For now, all items will use a generic display.
+                $button_text = "💎 $product_name - $$price ($date)";
+                // Using a 'noop' callback_data as these buttons are display-only for now.
+                // Max callback_data is 64 bytes. Product name + date might exceed. Using index.
+                $inline_keyboard[] = [['text' => $button_text, 'callback_data' => 'prod_noop_' . $index]];
             }
         } else {
-            $response_text .= "You haven't purchased any products yet. Feel free to browse our shop!\n";
-            $response_text .= "➖➖➖➖➖➖➖➖➖➖➖➖\n"; // Bottom border
+            $response_title = "You haven't purchased any products yet.";
+            // Optionally, add a button to go back to the main menu or shop
+            $inline_keyboard[] = [['text' => '« Back to Main Menu', 'callback_data' => 'back_to_main']];
         }
-        // Send as a new message. Consider editing the existing menu message if preferred.
-        sendMessage($chat_id, $response_text, null, 'HTML');
-        // Optionally, you might want to show the main menu again below the product list
-        // For now, just sending the list. User can use /start or back buttons if they exist.
+
+        $reply_markup = json_encode(['inline_keyboard' => $inline_keyboard]);
+        // Sending as a new message. If original message was a menu, could edit it.
+        sendMessage($chat_id, $response_title, $reply_markup, 'HTML');
     }
     // --- SUPPORT FLOW ---
+    // Note: Added a 'noop' callback handler for the product buttons if needed later,
+    // or they can remain purely informational.
+    elseif (strpos($data, 'prod_noop_') === 0) {
+        // Do nothing, it's just for display. Answer callback to remove loading.
+        // answerCallbackQuery($callback_query->id) is already called at the beginning.
+    }
     elseif ($data === 'support') {
         $text = "Are you sure you want to contact support? This will send your next message to the admins.";
         $keyboard = json_encode(['inline_keyboard' => [

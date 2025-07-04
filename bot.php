@@ -31,7 +31,7 @@ if (isset($update->message)) {
     $user_state = getUserState($user_id);
 
     // --- Admin is adding a product ---
-    if ($is_admin && is_array($user_state) && strpos($user_state['status'], 'admin_adding_') === 0) {
+    if ($is_admin && is_array($user_state) && strpos($user_state['status'], 'admin_adding_') === 0 && $user_state['status'] !== 'admin_adding_prod_manual') {
         $category_key = $user_state['category'];
 
         switch ($user_state['status']) {
@@ -53,10 +53,23 @@ if (isset($update->message)) {
                 $all_products = readJsonFile(PRODUCTS_FILE);
                 $all_products[$category_key][$user_state['id']] = ['name' => $user_state['name'], 'price' => $user_state['price']];
                 writeJsonFile(PRODUCTS_FILE, $all_products);
-                clearUserState($user_id);
+                clearUserState($user_id); // $user_id here is the admin's ID
                 sendMessage($chat_id, "✅ Product '{$user_state['name']}' added successfully!");
                 break;
         }
+    }
+    // --- Admin is manually adding a product for a user (after /addprod <USERID>) ---
+    elseif ($is_admin && is_array($user_state) && $user_state['status'] === 'admin_adding_prod_manual') {
+        $target_user_id = $user_state['target_user_id'];
+        $product_description = $text; // The admin's message is the product description
+
+        // Record the manually added product. Using a distinct "price" to identify it if needed later.
+        // The product_description will be used as the 'name' in user_purchases.json
+        recordPurchase($target_user_id, "🎁 " . $product_description, "Manually Added");
+
+        clearUserState($user_id); // $user_id here is the admin's ID
+        sendMessage($chat_id, "✅ Custom product '{$product_description}' has been added to user `{$target_user_id}`'s purchases.", null, 'Markdown');
+        sendMessage($target_user_id, "🎁 A new item has been manually added to your purchases by an admin: '{$product_description}'. You can see it in 'My Products'.");
     }
     // --- User is in a direct support chat ---
     elseif (isset($user_state['chatting_with'])) {
@@ -103,6 +116,18 @@ if (isset($update->message)) {
             sendMessage($chat_id, "✅ Thank you! Your message has been sent to the support team.");
             clearUserState($user_id);
         }
+        // Admin command: /addprod <USERID>
+        elseif ($is_admin && preg_match('/^\/addprod\s+(\d+)$/', $text, $matches)) {
+            $user_id_to_add_to = $matches[1];
+            // Check if target user ID is valid (e.g., is a number, maybe check if user exists if you have a user list)
+            // For now, just assume it's a valid ID if it's numeric.
+            if (is_numeric($user_id_to_add_to)) {
+                setUserState($user_id, ['status' => 'admin_adding_prod_manual', 'target_user_id' => $user_id_to_add_to]);
+                sendMessage($chat_id, "Please send the product description/name for user `{$user_id_to_add_to}`. This text will appear as the item in their 'My Products' list.", null, 'Markdown');
+            } else {
+                sendMessage($chat_id, "Invalid User ID provided. Usage: `/addprod <USERID>`");
+            }
+        }
         // Admin wants to start a chat
         elseif ($is_admin && preg_match('/^\/s(\d+)$/', $text, $matches)) {
             $customer_id = $matches[1];
@@ -117,21 +142,6 @@ if (isset($update->message)) {
             $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome to the shop.\n\nPlease select an option:";
             $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard;
             sendMessage($chat_id, $welcome_text, $keyboard);
-        }
-        // User sends /myprod
-        elseif ($text === "/myprod") {
-            $all_purchases = readJsonFile(USER_PURCHASES_FILE);
-            if (isset($all_purchases[$user_id]) && count($all_purchases[$user_id]) > 0) {
-                $response_text = "🛍️ **Your Purchased Products:**\n\n";
-                foreach ($all_purchases[$user_id] as $purchase) {
-                    $response_text .= "▪️ **Product:** " . htmlspecialchars($purchase['product_name']) . "\n";
-                    $response_text .= "▪️ **Price:** $" . htmlspecialchars($purchase['price']) . "\n";
-                    $response_text .= "▪️ **Date:** " . htmlspecialchars($purchase['date']) . "\n\n";
-                }
-            } else {
-                $response_text = "You haven't purchased any products yet. Feel free to browse our shop!";
-            }
-            sendMessage($chat_id, $response_text, null, 'HTML');
         }
         // User sends a photo receipt
         elseif (isset($message->photo)) {
