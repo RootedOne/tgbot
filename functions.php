@@ -255,7 +255,62 @@ function processCallbackQuery($callback_query) {
         // --- Fallback for old admin commands ---
         elseif ($data === 'admin_manage_products' || strpos($data, 'admin_manage_cat_') === 0 || (strpos($data, 'admin_add_') === 0 && strpos($data, 'admin_add_prod_select_category') !== 0 && strpos($data, 'admin_ap_cat_') !== 0) || preg_match('/^admin_remove_(.+)_(.+)$/', $data) ) { /* ... */ }
     }
-    elseif (preg_match('/^(accept|reject)_payment_(\d+)$/', $data, $matches)) { /* ... */ }
+    elseif (preg_match('/^(accept|reject)_payment_(\d+)$/', $data, $matches)) {
+        $action = $matches[1]; // 'accept' or 'reject'
+        $target_user_id = (int)$matches[2];
+        $admin_chat_id = $chat_id; // Admin who clicked the button
+        $admin_message_id = $message_id; // Message ID of the admin's approval message
+
+        if ($action === 'accept') {
+            $user_state = getUserState($target_user_id);
+            if ($user_state && isset($user_state['status']) && $user_state['status'] === 'awaiting_receipt' &&
+                isset($user_state['product_name']) && isset($user_state['price']) &&
+                isset($user_state['category_key']) && isset($user_state['product_id'])) {
+
+                recordPurchase($target_user_id, $user_state['product_name'], $user_state['price']);
+
+                $product_details = getProductDetails($user_state['category_key'], $user_state['product_id']);
+                $delivery_message = "Thank you! Your purchase of '{$user_state['product_name']}' has been approved.";
+
+                if ($product_details && ($product_details['type'] ?? 'manual') === 'instant') {
+                    $item_delivered = getAndRemoveInstantProductItem($user_state['category_key'], $user_state['product_id']);
+                    if ($item_delivered) {
+                        $delivery_message .= "\n\nHere is your product:\n`{$item_delivered}`";
+                        sendMessage($target_user_id, $delivery_message, null, 'Markdown');
+                    } else {
+                        $delivery_message .= "\n\nHowever, the product is currently out of stock. An admin will contact you shortly to resolve this.";
+                        sendMessage($target_user_id, $delivery_message);
+                        // Notify admin about out-of-stock situation
+                        sendMessage($admin_chat_id, "⚠️ User {$target_user_id}'s approved instant product '{$user_state['product_name']}' (ID: {$user_state['product_id']}) is out of stock. Please handle manually.");
+                    }
+                } else {
+                    // Manual product or type not specified correctly (treat as manual)
+                    $delivery_message .= "\nAn admin will process your order shortly.";
+                    sendMessage($target_user_id, $delivery_message);
+                }
+
+                clearUserState($target_user_id);
+                editMessageCaption($admin_chat_id, $admin_message_id, $callback_query->message->caption . "\n\n✅ Payment Accepted by you.", null); // Keep original caption, append status
+                sendMessage($admin_chat_id, "Payment from user `{$target_user_id}` for '{$user_state['product_name']}' accepted.", null, "Markdown");
+
+            } else {
+                editMessageCaption($admin_chat_id, $admin_message_id, $callback_query->message->caption . "\n\n⚠️ Error: Could not process acceptance. User state was not as expected or missing info.", null);
+                sendMessage($admin_chat_id, "Could not process payment acceptance for user `{$target_user_id}`. Their state was: " . json_encode($user_state), null, "Markdown");
+            }
+        } elseif ($action === 'reject') {
+            $user_state = getUserState($target_user_id); // Get state to retrieve product name for messages
+            $product_name_for_msg = ($user_state && isset($user_state['product_name'])) ? $user_state['product_name'] : 'your recent purchase attempt';
+
+            sendMessage($target_user_id, "⚠️ Your payment for '{$product_name_for_msg}' has been rejected. Please contact support if you have questions or wish to try again.");
+
+            // Clear the user's state so they are no longer awaiting receipt for this failed purchase.
+            // This allows them to attempt a new purchase if they wish.
+            clearUserState($target_user_id);
+
+            editMessageCaption($admin_chat_id, $admin_message_id, $callback_query->message->caption . "\n\n❌ Payment Rejected by you.", null); // Keep original caption, append status
+            sendMessage($admin_chat_id, "Payment from user `{$target_user_id}` for '{$product_name_for_msg}' rejected.", null, "Markdown");
+        }
+    }
     elseif ($data === 'buy_spotify' || $data === 'buy_ssh' || $data === 'buy_v2ray') {
         $category_key = '';
         $category_name = '';
