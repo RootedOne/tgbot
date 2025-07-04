@@ -102,8 +102,38 @@ function processCallbackQuery($callback_query) {
         editMessageText($chat_id, $message_id, $text, $keyboard, 'HTML');
     }
     elseif (strpos($data, 'prod_noop_') === 0) { /* ... existing noop logic ... */ }
-    elseif ($data === 'support') { /* ... existing support logic ... */ }
-    elseif ($data === 'support_confirm') { /* ... existing support_confirm logic ... */ }
+    elseif ($data === 'support') {
+        $support_message = "If you need help or have any questions, you can write a message to our support team.\n\n";
+        $support_message .= "Please choose an option:";
+        $support_keyboard = json_encode([
+            'inline_keyboard' => [
+                [['text' => "✍️ Write Message", 'callback_data' => 'support_confirm_action']], // Changed to avoid conflict if 'support_confirm' is used elsewhere
+                [['text' => "« Cancel", 'callback_data' => 'back_to_main']]
+            ]
+        ]);
+        editMessageText($chat_id, $message_id, $support_message, $support_keyboard);
+    }
+    // Updated to handle 'support_confirm_action' from the 'Write Message' button
+    elseif ($data === 'support_confirm_action') {
+        // Set user state to await their support message
+        setUserState($user_id, ['status' => 'awaiting_support_message', 'message_id' => $message_id]);
+
+        $prompt_text = "Please send your message to the support team now.\n\nYour message will be forwarded directly.";
+        $cancel_keyboard = json_encode([
+            'inline_keyboard' => [
+                [['text' => "🚫 Cancel Support Request", 'callback_data' => 'cancel_support_request']]
+            ]
+        ]);
+        editMessageText($chat_id, $message_id, $prompt_text, $cancel_keyboard);
+    }
+    elseif ($data === 'cancel_support_request') { // Handler for the new cancel button
+        clearUserState($user_id);
+        // Take user back to main menu
+        $first_name = $callback_query->from->first_name;
+        $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Support request cancelled. Welcome back to the main menu.";
+        $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard;
+        editMessageText($chat_id, $message_id, $welcome_text, $keyboard);
+    }
     // --- Admin Panel Flow ---
     elseif (strpos($data, 'admin_') === 0) {
         if (!$is_admin) {  sendMessage($chat_id, "Access denied."); return; }
@@ -242,6 +272,9 @@ function processCallbackQuery($callback_query) {
             $payment_info_text .= "After payment, send the screenshot of your receipt to this chat.";
             $keyboard = json_encode(['inline_keyboard' => [[['text' => 'Cancel Purchase', 'callback_data' => 'back_to_main']]]]);
             editMessageText($chat_id, $message_id, $payment_info_text, $keyboard, 'Markdown');
+        } else {
+            // Temporary debugging: Notify if product is not found
+            editMessageText($chat_id, $message_id, "Debug: Product not found for type '{$product_type_key}' and ID '{$product_id}'. Please check product data and callback generation.", json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => 'back_to_main']]]]));
         }
     }
     elseif ($data === 'back_to_main') {
