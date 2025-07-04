@@ -5,8 +5,8 @@
 define('STATE_FILE', 'user_states.json');
 define('PRODUCTS_FILE', 'products.json');
 define('USER_PURCHASES_FILE', 'user_purchases.json');
-define('USER_DATA_FILE', 'user_data.json'); 
-define('BOT_CONFIG_DATA_FILE', 'bot_config_data.json'); 
+define('USER_DATA_FILE', 'user_data.json');
+define('BOT_CONFIG_DATA_FILE', 'bot_config_data.json');
 
 // ===================================================================
 //  STATE & DATA MANAGEMENT FUNCTIONS
@@ -42,10 +42,10 @@ function getAndRemoveInstantProductItem($category_key, $product_id) { global $pr
 
 function promptForProductType($chat_id, $admin_user_id, $category_key, $product_name_context) { $type_keyboard = ['inline_keyboard' => [[['text' => '📦 Instant Delivery', 'callback_data' => 'admin_set_prod_type_instant']],[['text' => '👤 Manual Delivery', 'callback_data' => 'admin_set_prod_type_manual']],[['text' => '« Cancel', 'callback_data' => 'admin_prod_management']]]]; sendMessage($chat_id, "Product: '{$product_name_context}'.\nSelect delivery type:", json_encode($type_keyboard));}
 
-$products = readJsonFile(PRODUCTS_FILE); 
+$products = readJsonFile(PRODUCTS_FILE);
 
 // ===================================================================
-//  TELEGRAM API FUNCTIONS 
+//  TELEGRAM API FUNCTIONS
 // ===================================================================
 function bot($method, $data = []) { $url = "https://api.telegram.org/bot" . API_TOKEN . "/" . $method; $ch = curl_init(); curl_setopt($ch, CURLOPT_URL, $url); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_POSTFIELDS, $data); $res = curl_exec($ch); curl_close($ch); return json_decode($res); }
 function sendMessage($chat_id, $text, $reply_markup = null, $parse_mode = 'HTML') { bot('sendMessage', ['chat_id' => $chat_id, 'text' => $text, 'reply_markup' => $reply_markup, 'parse_mode' => $parse_mode]); }
@@ -61,22 +61,46 @@ function generateCategoryKeyboard($category_key) { global $products; $keyboard =
 //  CALLBACK QUERY PROCESSOR
 // ===================================================================
 function processCallbackQuery($callback_query) {
-    global $mainMenuKeyboard, $adminMenuKeyboard, $products; 
+    global $mainMenuKeyboard, $adminMenuKeyboard, $products;
     $chat_id = $callback_query->message->chat->id;
     $user_id = $callback_query->from->id;
     $data = $callback_query->data;
     $message_id = $callback_query->message->message_id;
-    $is_admin = in_array($user_id, getAdminIds()); 
+    $is_admin = in_array($user_id, getAdminIds());
 
     answerCallbackQuery($callback_query->id);
-    
+
     $user_specific_data = getUserData($user_id);
     if ($user_specific_data['is_banned']) {
         sendMessage($chat_id, "⚠️ You are banned from using this bot.");
-        return; 
+        return;
     }
-    
-    if ($data === 'my_products') { /* ... existing my_products logic ... */ }
+
+    if ($data === 'my_products') {
+        $purchases = readJsonFile(USER_PURCHASES_FILE);
+        $user_purchases = $purchases[$user_id] ?? [];
+
+        if (empty($user_purchases)) {
+            $text = "You have no products yet.";
+        } else {
+            $text = "<b>🛍️ Your Products:</b>\n\n";
+            foreach ($user_purchases as $purchase) {
+                $product_name = htmlspecialchars($purchase['product_name']);
+                $price = htmlspecialchars($purchase['price']); // Price might be "Manually Added" or a number
+                $date = $purchase['date']; // Already a string
+                $text .= "<b>Product:</b> {$product_name}\n";
+                // Display price only if it's numeric, otherwise it might be a note like "Manually Added"
+                if (is_numeric($price)) {
+                    $text .= "<b>Price:</b> \${$price}\n";
+                } else {
+                    $text .= "<b>Note:</b> {$price}\n";
+                }
+                $text .= "<b>Date:</b> {$date}\n\n";
+            }
+        }
+        $keyboard = json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => 'back_to_main']]]]);
+        editMessageText($chat_id, $message_id, $text, $keyboard, 'HTML');
+    }
     elseif (strpos($data, 'prod_noop_') === 0) { /* ... existing noop logic ... */ }
     elseif ($data === 'support') { /* ... existing support logic ... */ }
     elseif ($data === 'support_confirm') { /* ... existing support_confirm logic ... */ }
@@ -99,7 +123,7 @@ function processCallbackQuery($callback_query) {
         elseif (preg_match('/^admin_edit_(name|price|info)_([^_]+)_(.+)$/', $data, $matches_edit_action)) { /* ... prompts for new name/price/info ... */ }
         elseif (preg_match('/^admin_edit_type_prompt_([^_]+)_(.+)$/', $data, $matches_edit_type_prompt)) { /* ... shows type change buttons ... */ }
         elseif (preg_match('/^admin_set_type_to_(instant|manual)_([^_]+)_(.+)$/', $data, $matches_set_type)) { /* ... sets new type ... */ }
-        
+
         // --- Manage Instant Items Flow (Copied from mistaken bot.php overwrite) ---
         elseif (preg_match('/^admin_manage_instant_items_([^_]+)_(.+)$/', $data, $matches_manage_items)) {
             $category_key = $matches_manage_items[1]; $product_id = $matches_manage_items[2];
@@ -146,8 +170,8 @@ function processCallbackQuery($callback_query) {
                 $removed_item = htmlspecialchars($product_details['items'][$item_index]);
                 array_splice($product_details['items'], $item_index, 1);
                 updateProductDetails($category_key, $product_id, $product_details);
-                
-                $product_details_after_remove = getProductDetails($category_key, $product_id); 
+
+                $product_details_after_remove = getProductDetails($category_key, $product_id);
                 $items_text = "Item '{$removed_item}' removed.\n<b>Manage Instant Items: {$product_details_after_remove['name']}</b>\n";
                 $current_items_after_remove = $product_details_after_remove['items'] ?? [];
                 $items_text .= "Currently stocked: " . count($current_items_after_remove) . " item(s).\n";
@@ -163,8 +187,37 @@ function processCallbackQuery($callback_query) {
         elseif ($data === 'admin_manage_products' || strpos($data, 'admin_manage_cat_') === 0 || (strpos($data, 'admin_add_') === 0 && strpos($data, 'admin_add_prod_select_category') !== 0 && strpos($data, 'admin_ap_cat_') !== 0) || preg_match('/^admin_remove_(.+)_(.+)$/', $data) ) { /* ... */ }
     }
     elseif (preg_match('/^(accept|reject)_payment_(\d+)$/', $data, $matches)) { /* ... */ }
-    elseif ($data === 'buy_spotify' || $data === 'buy_ssh' || $data === 'buy_v2ray') { /* ... */ }
-    elseif (preg_match('/^(spotify|ssh|v2ray)_plan_(.+)$/', $data, $matches)) { 
+    elseif ($data === 'buy_spotify' || $data === 'buy_ssh' || $data === 'buy_v2ray') {
+        $category_key = '';
+        $category_name = '';
+        if ($data === 'buy_spotify') {
+            $category_key = 'spotify_plan';
+            $category_name = 'Spotify';
+        } elseif ($data === 'buy_ssh') {
+            $category_key = 'ssh_plan';
+            $category_name = 'SSH VPN';
+        } elseif ($data === 'buy_v2ray') {
+            $category_key = 'v2ray_plan';
+            $category_name = 'V2Ray VPN';
+        }
+
+        if (!empty($category_key)) {
+            global $products; // Ensure $products is accessible
+            if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } // Load if not already loaded
+
+            if (isset($products[$category_key]) && !empty($products[$category_key])) {
+                $keyboard = generateCategoryKeyboard($category_key);
+                editMessageText($chat_id, $message_id, "Please select a {$category_name} plan:", $keyboard);
+            } else {
+                // Category exists but has no products, or category key is wrong
+                editMessageText($chat_id, $message_id, "Sorry, there are no {$category_name} products available at the moment.", json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => 'back_to_main']]]]));
+            }
+        } else {
+            // Should not happen if $data is one of the three
+            editMessageText($chat_id, $message_id, "An unexpected error occurred. Please try again.", json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => 'back_to_main']]]]));
+        }
+    }
+    elseif (preg_match('/^(spotify|ssh|v2ray)_plan_(.+)$/', $data, $matches)) {
         $product_type_key = $matches[1] . '_plan'; $product_id = $matches[2]; $category = $matches[1];
         $product = getProductDetails($product_type_key, $product_id);
         if ($product) {
@@ -177,11 +230,11 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, $plan_info, $keyboard);
         }
      }
-    elseif (preg_match('/^confirm_buy_(.+?)_(.+)$/', $data, $matches)) { 
+    elseif (preg_match('/^confirm_buy_(.+?)_(.+)$/', $data, $matches)) {
         $product_type_key = $matches[1]; $product_id = $matches[2];
-        $product = getProductDetails($product_type_key, $product_id); 
+        $product = getProductDetails($product_type_key, $product_id);
         if ($product) {
-            setUserState($user_id, ['status' => 'awaiting_receipt', 'message_id' => $message_id, 'product_name' => $product['name'], 'price' => $product['price'], 'category_key' => $product_type_key, 'product_id' => $product_id]); 
+            setUserState($user_id, ['status' => 'awaiting_receipt', 'message_id' => $message_id, 'product_name' => $product['name'], 'price' => $product['price'], 'category_key' => $product_type_key, 'product_id' => $product_id]);
             $paymentDets = getPaymentDetails();
             $payment_info_text = "Please transfer **\${$product['price']}** to:\n\n";
             $payment_info_text .= "Card Number: `{$paymentDets['card_number']}`\n";
@@ -191,6 +244,13 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, $payment_info_text, $keyboard, 'Markdown');
         }
     }
-    elseif ($data === 'back_to_main') { /* ... existing back_to_main logic ... */ }
+    elseif ($data === 'back_to_main') {
+        $first_name = $callback_query->from->first_name; // Get user's first name for a personalized message
+        $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome back to the main menu.\n\nPlease select an option:";
+        $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard;
+        // It's good practice to make sure global keyboards are loaded if they come from config.php
+        // However, they are declared global at the top of processCallbackQuery, so they should be available.
+        editMessageText($chat_id, $message_id, $welcome_text, $keyboard);
+    }
 }
 ?>
