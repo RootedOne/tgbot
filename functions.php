@@ -34,7 +34,20 @@ function unbanUser($user_id) { $user_data = getUserData($user_id); $user_data['i
 function addUserBalance($user_id, $amount) { if (!is_numeric($amount) || $amount < 0) return false; $user_data = getUserData($user_id); $user_data['balance'] = ($user_data['balance'] ?? 0) + (float)$amount; updateUserData($user_id, $user_data); return true; }
 
 // --- User Purchase and Product Functions ---
-function recordPurchase($user_id, $product_name, $price) { $purchases = readJsonFile(USER_PURCHASES_FILE); $new_purchase = ['product_name' => $product_name, 'price' => $price, 'date' => date('Y-m-d H:i:s')]; if (!isset($purchases[$user_id])) { $purchases[$user_id] = []; } $purchases[$user_id][] = $new_purchase; writeJsonFile(USER_PURCHASES_FILE, $purchases); }
+function recordPurchase($user_id, $product_name, $price, $delivered_item_details = null) {
+    $purchases = readJsonFile(USER_PURCHASES_FILE);
+    $new_purchase = [
+        'product_name' => $product_name,
+        'price' => $price,
+        'date' => date('Y-m-d H:i:s'), // Consider UTC: date_default_timezone_set('UTC'); then date('Y-m-d H:i:s')
+        'delivered_item_details' => $delivered_item_details // New field
+    ];
+    if (!isset($purchases[$user_id])) {
+        $purchases[$user_id] = [];
+    }
+    $purchases[$user_id][] = $new_purchase;
+    writeJsonFile(USER_PURCHASES_FILE, $purchases);
+}
 function getProductDetails($category_key, $product_id) {
     global $products;
     if (empty($products)) {
@@ -267,17 +280,20 @@ function processCallbackQuery($callback_query) {
                 isset($user_state['product_name']) && isset($user_state['price']) &&
                 isset($user_state['category_key']) && isset($user_state['product_id'])) {
 
-                recordPurchase($target_user_id, $user_state['product_name'], $user_state['price']);
+                // Initialize item_delivered for recordPurchase
+                $item_to_store_in_purchase = null;
 
                 $product_details = getProductDetails($user_state['category_key'], $user_state['product_id']);
                 $delivery_message = "Thank you! Your purchase of '{$user_state['product_name']}' has been approved.";
 
                 if ($product_details && ($product_details['type'] ?? 'manual') === 'instant') {
-                    $item_delivered = getAndRemoveInstantProductItem($user_state['category_key'], $user_state['product_id']);
-                    if ($item_delivered) {
-                        $delivery_message .= "\n\nHere is your product:\n`{$item_delivered}`";
+                    $item_delivered_for_user = getAndRemoveInstantProductItem($user_state['category_key'], $user_state['product_id']);
+                    if ($item_delivered_for_user) {
+                        $item_to_store_in_purchase = $item_delivered_for_user; // Store the actual delivered item
+                        $delivery_message .= "\n\nHere is your product:\n`{$item_delivered_for_user}`";
                         sendMessage($target_user_id, $delivery_message, null, 'Markdown');
                     } else {
+                        // Product is out of stock, item_to_store_in_purchase remains null
                         $delivery_message .= "\n\nHowever, the product is currently out of stock. An admin will contact you shortly to resolve this.";
                         sendMessage($target_user_id, $delivery_message);
                         // Notify admin about out-of-stock situation
@@ -285,9 +301,13 @@ function processCallbackQuery($callback_query) {
                     }
                 } else {
                     // Manual product or type not specified correctly (treat as manual)
+                    // item_to_store_in_purchase remains null for manual products at this stage
                     $delivery_message .= "\nAn admin will process your order shortly.";
                     sendMessage($target_user_id, $delivery_message);
                 }
+
+                // Now call recordPurchase with the potentially delivered item
+                recordPurchase($target_user_id, $user_state['product_name'], $user_state['price'], $item_to_store_in_purchase);
 
                 clearUserState($target_user_id);
                 editMessageCaption($admin_chat_id, $admin_message_id, $callback_query->message->caption . "\n\n✅ Payment Accepted by you.", null); // Keep original caption, append status
