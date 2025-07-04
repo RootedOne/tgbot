@@ -35,7 +35,23 @@ function addUserBalance($user_id, $amount) { if (!is_numeric($amount) || $amount
 
 // --- User Purchase and Product Functions ---
 function recordPurchase($user_id, $product_name, $price) { $purchases = readJsonFile(USER_PURCHASES_FILE); $new_purchase = ['product_name' => $product_name, 'price' => $price, 'date' => date('Y-m-d H:i:s')]; if (!isset($purchases[$user_id])) { $purchases[$user_id] = []; } $purchases[$user_id][] = $new_purchase; writeJsonFile(USER_PURCHASES_FILE, $purchases); }
-function getProductDetails($category_key, $product_id) { global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } return $products[$category_key][$product_id] ?? null; }
+function getProductDetails($category_key, $product_id) {
+    global $products;
+    if (empty($products)) {
+        $products = readJsonFile(PRODUCTS_FILE);
+    }
+
+    // Trim keys to safeguard against potential whitespace issues from products.json or callback data generation
+    $trimmed_category_key = trim($category_key);
+    $trimmed_product_id = trim($product_id);
+
+    if (isset($products[$trimmed_category_key])) {
+        if (isset($products[$trimmed_category_key][$trimmed_product_id])) {
+            return $products[$trimmed_category_key][$trimmed_product_id];
+        }
+    }
+    return null;
+}
 function updateProductDetails($category_key, $product_id, $details) { global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } if (isset($products[$category_key][$product_id])) { $products[$category_key][$product_id] = $details; writeJsonFile(PRODUCTS_FILE, $products); return true; } return false; }
 function addInstantProductItem($category_key, $product_id, $item_content) { global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } if (isset($products[$category_key][$product_id]) && ($products[$category_key][$product_id]['type'] ?? 'manual') === 'instant') { if (!isset($products[$category_key][$product_id]['items']) || !is_array($products[$category_key][$product_id]['items'])) { $products[$category_key][$product_id]['items'] = []; } $products[$category_key][$product_id]['items'][] = $item_content; writeJsonFile(PRODUCTS_FILE, $products); return true; } return false; }
 function getAndRemoveInstantProductItem($category_key, $product_id) { global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } if (isset($products[$category_key][$product_id]) && ($products[$category_key][$product_id]['type'] ?? 'manual') === 'instant' && !empty($products[$category_key][$product_id]['items']) && is_array($products[$category_key][$product_id]['items'])) { $item = array_shift($products[$category_key][$product_id]['items']); writeJsonFile(PRODUCTS_FILE, $products); return $item; } return null; }
@@ -138,7 +154,19 @@ function processCallbackQuery($callback_query) {
     elseif (strpos($data, 'admin_') === 0) {
         if (!$is_admin) {  sendMessage($chat_id, "Access denied."); return; }
 
-        if ($data === 'admin_panel') { /* ... shows main admin menu ... */ }
+        if ($data === 'admin_panel') {
+            $admin_panel_text = "⚙️ Admin Panel ⚙️\n\nSelect an option to manage the bot:";
+            $admin_panel_keyboard = json_encode([
+                'inline_keyboard' => [
+                    [['text' => "📦 Product Management", 'callback_data' => 'admin_prod_management']],
+                    // [['text' => "👤 User Management", 'callback_data' => 'admin_user_management']], // Placeholder for future
+                    // [['text' => "⚙️ Bot Settings", 'callback_data' => 'admin_bot_settings']],       // Placeholder for future
+                    [['text' => "📊 View Stats", 'callback_data' => 'admin_view_stats']],             // Placeholder for future
+                    [['text' => "« Back to Main Menu", 'callback_data' => 'back_to_main']]
+                ]
+            ]);
+            editMessageText($chat_id, $message_id, $admin_panel_text, $admin_panel_keyboard);
+        }
         elseif ($data === 'admin_prod_management') { /* ... shows product mgt menu ... */ }
         elseif ($data === 'admin_add_prod_select_category') { /* ... selects category for new product ... */ }
         elseif (strpos($data, 'admin_ap_cat_') === 0) { /* ... sets state for adding product name ... */ }
@@ -272,10 +300,10 @@ function processCallbackQuery($callback_query) {
             $payment_info_text .= "After payment, send the screenshot of your receipt to this chat.";
             $keyboard = json_encode(['inline_keyboard' => [[['text' => 'Cancel Purchase', 'callback_data' => 'back_to_main']]]]);
             editMessageText($chat_id, $message_id, $payment_info_text, $keyboard, 'Markdown');
-        } else {
-            // Temporary debugging: Notify if product is not found
-            editMessageText($chat_id, $message_id, "Debug: Product not found for type '{$product_type_key}' and ID '{$product_id}'. Please check product data and callback generation.", json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => 'back_to_main']]]]));
         }
+        // NOTE: The else block with the debug message has been removed.
+        // If $product is null, nothing will happen, which is the original problem symptom.
+        // The fix is expected in the updated getProductDetails function.
     }
     elseif ($data === 'back_to_main') {
         $first_name = $callback_query->from->first_name; // Get user's first name for a personalized message
