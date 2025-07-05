@@ -164,7 +164,7 @@ function generateBotStatsText() {
 //  TELEGRAM API FUNCTIONS
 // ===================================================================
 function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
-    error_log("START_MENU: generateDynamicMainMenuKeyboard called. Admin: " . ($is_admin_menu ? 'Yes' : 'No'));
+    // error_log("START_MENU: generateDynamicMainMenuKeyboard called. Admin: " . ($is_admin_menu ? 'Yes' : 'No')); // Kept for now, can be removed later
     global $products;
     $products = readJsonFile(PRODUCTS_FILE);
 
@@ -189,7 +189,7 @@ function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
     }
 
     $final_keyboard_structure = ['inline_keyboard' => $keyboard_rows];
-    // error_log("START_MENU: Returning keyboard structure: " . print_r($final_keyboard_structure, true)); // Verbose log commented out
+    // error_log("START_MENU: Returning keyboard structure: " . print_r($final_keyboard_structure, true));
     return $final_keyboard_structure;
 }
 
@@ -211,22 +211,24 @@ function forwardPhotoToAdmin($file_id, $caption, $original_user_id) {
 }
 
 function generateCategoryKeyboard($category_key) {
-    error_log("GEN_CAT_KB: Called for category: " . $category_key);
+    // error_log("GEN_CAT_KB: Called for category: " . $category_key); // Keep this for a bit
     global $products;
 
     $keyboard = ['inline_keyboard' => []];
     $category_products = $products[$category_key] ?? [];
-    // error_log("GEN_CAT_KB: Products in this category ('" . $category_key . "'): " . print_r($category_products, true)); // Verbose log commented out
+    // error_log("GEN_CAT_KB: Products in this category ('" . $category_key . "'): " . print_r($category_products, true));
 
-    if (empty($category_products)) {
-        // error_log("GEN_CAT_KB: No products found in loop for category: " . $category_key);
-    }
+    // if (empty($category_products)) { // Not strictly needed to log here, user gets feedback
+    //     error_log("GEN_CAT_KB: No products found in loop for category: " . $category_key);
+    // }
 
     foreach ($category_products as $id => $details) {
         if (is_array($details) && isset($details['name']) && isset($details['price'])) {
             $product_display_name = $details['name'];
             $product_price = $details['price'];
-            $keyboard['inline_keyboard'][] = [['text' => "{$product_display_name} - \${$product_price}", 'callback_data' => "{$category_key}_{$id}"]];
+            $callback_value = "{$category_key}_{$id}";
+            // error_log("GEN_CAT_KB_PROD_CB: For category '{$category_key}', generated product callback: '" . $callback_value . "'"); // Can be removed
+            $keyboard['inline_keyboard'][] = [['text' => "{$product_display_name} - \${$product_price}", 'callback_data' => $callback_value]];
         } else {
             error_log("GEN_CAT_KB: Product ID '{$id}' in category '{$category_key}' has malformed details: " . print_r($details, true));
         }
@@ -246,10 +248,10 @@ function processCallbackQuery($callback_query) {
     $message_id = $callback_query->message->message_id;
     $is_admin = in_array($user_id, getAdminIds());
 
-    error_log("PROCESS_CALLBACK_QUERY: Received data: '" . $data . "' | UserID: " . $user_id . " | ChatID: " . $chat_id . " | MessageID: " . $message_id);
+    error_log("PROCESS_CALLBACK_QUERY: Received data: '" . $data . "' | UserID: " . $user_id); // Simplified top log
 
     if (strpos($data, CALLBACK_ADMIN_RP_CONF_YES_PREFIX) === 0) {
-        error_log("DEBUG PRE-ACK: RP_CONF_YES_PREFIX data received by processCallbackQuery. Data: " . $data);
+        // error_log("DEBUG PRE-ACK: RP_CONF_YES_PREFIX data received by processCallbackQuery. Data: " . $data); // Can be commented
     }
 
     answerCallbackQuery($callback_query->id);
@@ -261,27 +263,19 @@ function processCallbackQuery($callback_query) {
     }
 
     if (strpos($data, 'view_category_') === 0) {
-        error_log("VIEW_CAT: Entered handler. Data: " . $data);
+        // error_log("VIEW_CAT: Entered handler. Data: " . $data); // Entry confirmed by top log
         global $products; $products = readJsonFile(PRODUCTS_FILE);
 
         $category_key_view = substr($data, strlen('view_category_'));
-        error_log("VIEW_CAT: Category key extracted: " . $category_key_view);
+        // error_log("VIEW_CAT: Category key extracted: " . $category_key_view);
 
         $category_display_name_view = ucfirst(str_replace('_', ' ', $category_key_view));
 
         if (isset($products[$category_key_view]) && !empty($products[$category_key_view])) {
-            // error_log("VIEW_CAT: Category '{$category_key_view}' has products. Calling generateCategoryKeyboard."); // Reduced verbosity
             $kb_category_products = generateCategoryKeyboard($category_key_view);
             editMessageText($chat_id, $message_id, "Please select a product from <b>" . htmlspecialchars($category_display_name_view) . "</b>:", $kb_category_products, 'HTML');
         } else {
-            error_log("VIEW_CAT: Category '{$category_key_view}' is empty or not found in loaded products for display.");
-            /*
-             if (isset($products[$category_key_view])) {
-                error_log("VIEW_CAT: Category '{$category_key_view}' IS SET but is EMPTY.");
-            } else {
-                error_log("VIEW_CAT: Category '{$category_key_view}' IS NOT SET in products array.");
-            }
-            */
+            error_log("VIEW_CAT: Category '{$category_key_view}' is empty or not found in loaded products for display. Data: ".$data);
             $kb_empty_cat = json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]);
             editMessageText($chat_id, $message_id, "Sorry, no products are currently available in the <b>" . htmlspecialchars($category_display_name_view) . "</b> category, or the category may have been recently updated.", $kb_empty_cat, 'HTML');
         }
@@ -795,40 +789,69 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, "Product removal cancelled. Select product to REMOVE from '".htmlspecialchars($category_key_rem_no)."':", json_encode(['inline_keyboard' => $keyboard_rows_rem_no_list]));
         }
     }
-    /* // This block was for static CALLBACK_BUY_SPOTIFY etc. - now removed and handled by dynamic view_category_
+    /*
     elseif ($data === CALLBACK_BUY_SPOTIFY || $data === CALLBACK_BUY_SSH || $data === CALLBACK_BUY_V2RAY) {
-        // ...
+        // ... (This block was removed as it's handled by dynamic view_category_)
     }
     */
-    elseif (preg_match('/^([a-zA-Z0-9_]+)_([a-zA-Z0-9_]+)$/', $data, $matches_prod_select) &&
-            strpos($data, 'view_category_') !== 0 &&
-            !strpos($data, 'admin_') === 0 &&
-            $data !== CALLBACK_BACK_TO_MAIN && $data !== CALLBACK_MY_PRODUCTS && $data !== CALLBACK_SUPPORT &&
-            !strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) === 0
-        ) {
-        global $products; $products = readJsonFile(PRODUCTS_FILE);
-        $category_key_select = $matches_prod_select[1];
-        $product_id_select = $matches_prod_select[2];
+    // The `else` block below is the temporary debug wrapper for the product selection regex.
+    // After confirming the fix, this `else` should be changed back to `elseif` with the correct combined condition.
+    // It will catch any callback that is not 'view_category_', not an admin action, and not one of the other specific general callbacks.
+    // This is where product selection callbacks like 'categorykey_productid' should land.
+    else {
+        // error_log("PROD_SEL_DEBUG: PRE-CHECK for data: '" . $data . "'"); // PRE-CHECK is effectively the top-level log now
+        $matches_prod_select = [];
+        $cond_pregmatch = preg_match('/^(.*)_([^_]+)$/', $data, $matches_prod_select);
+        // error_log("PROD_SEL_DEBUG: preg_match result: " . (int)$cond_pregmatch . ", Matches: " . print_r($matches_prod_select, true)); // Can be verbose
 
+        $cond_not_view_cat = (strpos($data, 'view_category_') !== 0);
+        $cond_not_admin_prefix = (strpos($data, 'admin_') !== 0);
+        $cond_not_back = ($data !== CALLBACK_BACK_TO_MAIN);
+        $cond_not_my_prod = ($data !== CALLBACK_MY_PRODUCTS);
+        $cond_not_support = ($data !== CALLBACK_SUPPORT);
+        $cond_not_confirm_buy = (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) !== 0);
 
-        if (isset($products[$category_key_select][$product_id_select])) {
-            $product_selected = $products[$category_key_select][$product_id_select];
-            $plan_info_text = "<b>Product:</b> " . htmlspecialchars($product_selected['name']) . "\n";
-            $plan_info_text .= "<b>Price:</b> $" . htmlspecialchars($product_selected['price']) . "\n";
-            $plan_info_text .= "<b>Info:</b> " . nl2br(htmlspecialchars($product_selected['info'] ?? 'N/A')) . "\n\n";
-            $plan_info_text .= "Do you want to purchase this item?";
-
-             $back_cb_data = 'view_category_' . $category_key_select;
-
-            $kb_prod_select = json_encode(['inline_keyboard' => [
-                [['text' => "✅ Yes, Buy This", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . "{$category_key_select}_{$product_id_select}"]],
-                [['text' => "« Back to Plans", 'callback_data' => $back_cb_data ]]
-            ]]);
-            editMessageText($chat_id, $message_id, $plan_info_text, $kb_prod_select, 'HTML');
-        } else {
+        // Log conditions only if pregmatch was true, to reduce noise for other fall-throughs
+        if ($cond_pregmatch) {
+            error_log("PROD_SEL_DEBUG: Conditions eval for (data: '".$data."'): not_view_cat=".(int)$cond_not_view_cat.", not_admin_prefix=".(int)$cond_not_admin_prefix.", not_back=".(int)$cond_not_back.", not_my_prod=".(int)$cond_not_my_prod.", not_support=".(int)$cond_not_support.", not_confirm_buy=".(int)$cond_not_confirm_buy);
         }
-     }
-    elseif (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) === 0) {
+
+        if ($cond_pregmatch && $cond_not_view_cat && $cond_not_admin_prefix && $cond_not_back && $cond_not_my_prod && $cond_not_support && $cond_not_confirm_buy) {
+            error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
+            global $products; $products = readJsonFile(PRODUCTS_FILE);
+
+            $category_key_select = $matches_prod_select[1];
+            $product_id_select = $matches_prod_select[2];
+
+            if (isset($products[$category_key_select][$product_id_select])) {
+                $product_selected = $products[$category_key_select][$product_id_select];
+                $plan_info_text = "<b>Product:</b> " . htmlspecialchars($product_selected['name']) . "\n";
+                $plan_info_text .= "<b>Price:</b> $" . htmlspecialchars($product_selected['price']) . "\n";
+                $plan_info_text .= "<b>Info:</b> " . nl2br(htmlspecialchars($product_selected['info'] ?? 'N/A')) . "\n\n";
+                $plan_info_text .= "Do you want to purchase this item?";
+                $back_cb_data = 'view_category_' . $category_key_select;
+                $kb_prod_select = json_encode(['inline_keyboard' => [
+                    [['text' => "✅ Yes, Buy This", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . "{$category_key_select}_{$product_id_select}"]],
+                    [['text' => "« Back to Plans", 'callback_data' => $back_cb_data ]]
+                ]]);
+                editMessageText($chat_id, $message_id, $plan_info_text, $kb_prod_select, 'HTML');
+            } else {
+                 error_log("PROD_SEL_DEBUG: Product '{$category_key_select}_{$product_id_select}' not found in loaded products. Data: ".$data);
+                 $kb_notfound_prod = json_encode(['inline_keyboard' => [[['text' => '« Back to Categories', 'callback_data' => 'view_category_' . $category_key_select ]], [['text' => '« Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN ]]]]);
+                 editMessageText($chat_id, $message_id, "Sorry, the selected product could not be found. It might have been recently updated or removed.", $kb_notfound_prod);
+            }
+            return;
+        } else {
+             // Only log if pregmatch was true but other conditions failed
+             if ($cond_pregmatch) {
+                error_log("PROD_SEL_DEBUG: Product selection conditions NOT met for data: '" . $data . "'. Falling through.");
+             }
+             // Fall through to remaining specific handlers
+        }
+    }
+
+    // This must be elseif if the above temporary else block is reverted
+    if (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) === 0) {
         $ids_str_confirm_buy = substr($data, strlen(CALLBACK_CONFIRM_BUY_PREFIX));
         if (!preg_match('/^(.+)_([^_]+)$/', $ids_str_confirm_buy, $matches_ids_confirm_buy)) {
              error_log("Error parsing IDs for confirm buy: {$data}");
