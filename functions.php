@@ -294,6 +294,35 @@ function generateCategoryKeyboard($category_key) {
     return json_encode($keyboard);
 }
 
+function generateCategoryKeyboard($category_key) {
+    error_log("GEN_CAT_KB: Called for category: " . $category_key); // LOG START
+    global $products;
+    // $products should be fresh if called from view_category_ handler, which reloads it.
+    // If called from elsewhere, ensure $products is fresh there too.
+
+    $keyboard = ['inline_keyboard' => []];
+    $category_products = $products[$category_key] ?? [];
+    error_log("GEN_CAT_KB: Products in this category ('" . $category_key . "'): " . print_r($category_products, true)); // LOG PRODUCTS FOUND
+
+    if (empty($category_products)) {
+        error_log("GEN_CAT_KB: No products found in loop for category: " . $category_key); // LOG IF EMPTY (before loop)
+    }
+
+    foreach ($category_products as $id => $details) {
+        // Ensure $details is an array and has 'name' and 'price'
+        if (is_array($details) && isset($details['name']) && isset($details['price'])) {
+            $product_display_name = $details['name'];
+            $product_price = $details['price'];
+            $keyboard['inline_keyboard'][] = [['text' => "{$product_display_name} - \${$product_price}", 'callback_data' => "{$category_key}_{$id}"]];
+        } else {
+            error_log("GEN_CAT_KB: Product ID '{$id}' in category '{$category_key}' has malformed details: " . print_r($details, true));
+        }
+    }
+    $keyboard['inline_keyboard'][] = [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]];
+    return json_encode($keyboard);
+}
+
+
 // ===================================================================
 //  CALLBACK QUERY PROCESSOR
 // ===================================================================
@@ -814,14 +843,26 @@ function processCallbackQuery($callback_query) {
     }
     // New handler for dynamically generated category view buttons
     elseif (strpos($data, 'view_category_') === 0) {
+        error_log("VIEW_CAT: Entered handler. Data: " . $data); // LOG START
         global $products; $products = readJsonFile(PRODUCTS_FILE); // Ensure fresh products
+        // error_log("VIEW_CAT: Products loaded: " . print_r($products, true)); // Verbose, enable if necessary
+
         $category_key_view = substr($data, strlen('view_category_'));
+        error_log("VIEW_CAT: Category key extracted: " . $category_key_view); // LOG CATEGORY KEY
+
         $category_display_name_view = ucfirst(str_replace('_', ' ', $category_key_view));
 
         if (isset($products[$category_key_view]) && !empty($products[$category_key_view])) {
+            error_log("VIEW_CAT: Category '{$category_key_view}' has products. Calling generateCategoryKeyboard."); // LOG HAS PRODUCTS
             $kb_category_products = generateCategoryKeyboard($category_key_view); // This function uses global $products
             editMessageText($chat_id, $message_id, "Please select a product from <b>" . htmlspecialchars($category_display_name_view) . "</b>:", $kb_category_products, 'HTML');
         } else {
+            error_log("VIEW_CAT: Category '{$category_key_view}' is empty or not found in loaded products."); // LOG EMPTY/NOT FOUND
+             if (isset($products[$category_key_view])) {
+                error_log("VIEW_CAT: Category '{$category_key_view}' IS SET but is EMPTY.");
+            } else {
+                error_log("VIEW_CAT: Category '{$category_key_view}' IS NOT SET in products array.");
+            }
             // Category might be empty or was just removed/renamed
             $kb_empty_cat = json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]);
             editMessageText($chat_id, $message_id, "Sorry, no products are currently available in the <b>" . htmlspecialchars($category_display_name_view) . "</b> category, or the category may have been recently updated.", $kb_empty_cat, 'HTML');
@@ -858,9 +899,10 @@ function processCallbackQuery($callback_query) {
     // This regex needs to be general enough for any category key, not just specific ones.
     // Example: 'categorykey_productid'
     elseif (preg_match('/^([a-zA-Z0-9_]+)_([a-zA-Z0-9_]+)$/', $data, $matches_prod_select) &&
+            strpos($data, 'view_category_') !== 0 && // Explicitly ensure it's not a view_category_ callback
             !strpos($data, 'admin_') === 0 && // Avoid conflict with admin callbacks
             $data !== CALLBACK_BACK_TO_MAIN && $data !== CALLBACK_MY_PRODUCTS && $data !== CALLBACK_SUPPORT &&
-            $data !== CALLBACK_BUY_SPOTIFY && $data !== CALLBACK_BUY_SSH && $data !== CALLBACK_BUY_V2RAY && // Avoid specific buy entry points
+            // $data !== CALLBACK_BUY_SPOTIFY && $data !== CALLBACK_BUY_SSH && $data !== CALLBACK_BUY_V2RAY && // These are removed
             !strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) === 0 // Avoid confirm buy prefix
         ) {
         global $products; $products = readJsonFile(PRODUCTS_FILE); // Refresh products
