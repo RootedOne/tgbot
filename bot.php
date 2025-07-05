@@ -62,8 +62,6 @@ if (isset($update->message)) {
                     break;
                 }
                 $user_state['new_product_price'] = $text;
-                // The prompt for info is sent, but the state user gets into is STATE_ADMIN_ADDING_PROD_INFO
-                // This was STATE_ADMIN_ADDING_PROD_INFO_PROMPT in planning, but code uses STATE_ADMIN_ADDING_PROD_INFO
                 $user_state['status'] = STATE_ADMIN_ADDING_PROD_INFO;
                 setUserState($user_id, $user_state);
                 sendMessage($chat_id, "Enter the product information/description for '{$user_state['new_product_name']}' (this will be shown on the confirmation page):");
@@ -72,7 +70,7 @@ if (isset($update->message)) {
             case STATE_ADMIN_ADDING_PROD_INFO:
                 $user_state['new_product_info'] = $text;
                 setUserState($user_id, $user_state);
-                if ($user_state['new_product_type'] === 'instant') { // Assuming 'instant' is a string literal, not a constant here
+                if ($user_state['new_product_type'] === 'instant') {
                     $user_state['status'] = STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS;
                     $user_state['new_product_items_buffer'] = [];
                     setUserState($user_id, $user_state);
@@ -115,9 +113,15 @@ if (isset($update->message)) {
                     'items' => ($user_state['new_product_type'] === 'instant' ? $user_state['new_product_items_buffer'] : [])
                 ];
                 $products[$user_state['category_key']][$product_id_input] = $new_product_data;
-                writeJsonFile(PRODUCTS_FILE, $products);
-                sendMessage($chat_id, "✅ Product '{$user_state['new_product_name']}' (ID: {$product_id_input}) added successfully to category '{$user_state['category_key']}'!");
-                clearUserState($user_id);
+
+                if (writeJsonFile(PRODUCTS_FILE, $products)) {
+                    sendMessage($chat_id, "✅ Product '{$user_state['new_product_name']}' (ID: {$product_id_input}) added successfully to category '{$user_state['category_key']}'!");
+                    clearUserState($user_id);
+                } else {
+                    sendMessage($chat_id, "⚠️ Product '{$user_state['new_product_name']}' data was prepared, but FAILED to save to file. Please check server logs or file permissions. The product was NOT added.\nYou are still in the process of adding this product. You can try entering a product ID again, or type /canceladdproduct to abort the whole process.");
+                    // User remains in STATE_ADMIN_ADDING_PROD_ID to potentially retry ID or take other action.
+                    // A general /cancel command for all states would be useful here.
+                }
                 break;
         }
     }
@@ -261,7 +265,7 @@ if (isset($update->message)) {
         if (empty(trim($new_item_content))) {
             sendMessage($chat_id, "Item content cannot be empty. Please send the content or /cancel.");
         } else {
-            if (addInstantProductItem($category_key, $product_id, $new_item_content)) {
+            if (addInstantProductItem($category_key, $product_id, $new_item_content)) { // addInstantProductItem internally calls writeJsonFile
                 sendMessage($chat_id, "✅ New instant item added successfully to '" . htmlspecialchars($product_id) . "'.");
                 clearUserState($user_id);
                 $product_details_updated = getProductDetails($category_key, $product_id);
@@ -280,14 +284,13 @@ if (isset($update->message)) {
                 } else {
                      sendMessage($chat_id, $items_text_upd, json_encode(['inline_keyboard' => $kb_rows_upd]), 'HTML');
                 }
-            } else {
-                sendMessage($chat_id, "⚠️ Error adding instant item. Product might not be 'instant' type, not found, or an issue occurred saving. Or type /cancel.");
+            } else { // This else implies addInstantProductItem returned false, meaning writeJsonFile failed.
+                sendMessage($chat_id, "⚠️ Error adding instant item. Product might not be 'instant' type, not found, or an issue occurred saving. Please check server logs. Or type /cancel.");
             }
         }
     }
     // --- User is in a direct support chat ---
     elseif (isset($user_state['chatting_with'])) {
-        // ... (support chat logic - remains unchanged for now)
         if ($is_admin && preg_match('/^\/e(\d+)$/', $text, $matches)) {
             $customer_id_to_end = $matches[1];
             $current_chat_partner = $user_state['chatting_with'];
@@ -309,8 +312,15 @@ if (isset($update->message)) {
     // --- No special state, handle regular commands and messages ---
     else {
         if (is_array($user_state) && ($user_state['status'] ?? null) === STATE_AWAITING_SUPPORT_MESSAGE) {
-            if(isset($user_state['message_id'])){
-                editMessageReplyMarkup($chat_id, $user_state['message_id'], null);
+            if(isset($user_state['message_id'])){ // If a previous message had a "Cancel" button for support
+                // Check if the text is /cancel
+                if (strtolower($text) === '/cancel') {
+                    editMessageText($chat_id, $user_state['message_id'], "Support request cancelled.", null); // Remove buttons from original prompt
+                    sendMessage($chat_id, "Your support request has been cancelled.");
+                    clearUserState($user_id);
+                    exit();
+                }
+                editMessageReplyMarkup($chat_id, $user_state['message_id'], null); // Remove cancel button from prev message
             }
             $user_info = "New support message from:\n";
             $user_info .= "User: " . htmlspecialchars(($message->from->first_name ?? '') . " " . ($message->from->last_name ?? '')) . "\n";
@@ -339,7 +349,6 @@ if (isset($update->message)) {
         }
         // Admin wants to start a chat
         elseif ($is_admin && preg_match('/^\/s(\d+)$/', $text, $matches)) {
-            // ... (start chat logic - remains unchanged)
             $customer_id = $matches[1];
             setUserState($user_id, ['chatting_with' => $customer_id]);
             setUserState($customer_id, ['chatting_with' => $user_id]);
@@ -350,7 +359,7 @@ if (isset($update->message)) {
         elseif ($text === "/start") {
             $first_name = $message->from->first_name;
             $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome to the shop.\n\nPlease select an option:";
-            $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard; // These keyboards now use constants
+            $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard;
             sendMessage($chat_id, $welcome_text, $keyboard);
         }
         // User sends a photo receipt
@@ -362,9 +371,9 @@ if (isset($update->message)) {
                 $price = $state['price'] ?? 'N/A';
                 $user_info = "🧾 New Payment Receipt\n\n▪️ **Product:** $product_name\n▪️ **Price:** $$price\n\n👤 **From User:**\nName: " . htmlspecialchars(($message->from->first_name ?? '') . " " . ($message->from->last_name ?? '')) . "\nUsername: @" . ($message->from->username ?? 'N/A') . "\nID: `$user_id`";
                 $photo_file_id = $message->photo[count($message->photo) - 1]->file_id;
-                forwardPhotoToAdmin($photo_file_id, $user_info, $user_id); // Assuming forwardPhotoToAdmin uses constants for its kbd if any
+                forwardPhotoToAdmin($photo_file_id, $user_info, $user_id);
                 sendMessage($chat_id, "✅ Thank you! Your receipt has been submitted and is now under review.");
-                 clearUserState($user_id); // Clear state after submission
+                 clearUserState($user_id);
             } else {
                 sendMessage($chat_id, "I've received your photo, but I wasn't expecting one. If you need help, please use the Support button.");
             }
