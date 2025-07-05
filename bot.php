@@ -74,7 +74,7 @@ if (isset($update->message)) {
                     $user_state['status'] = STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS;
                     $user_state['new_product_items_buffer'] = [];
                     setUserState($user_id, $user_state);
-                    sendMessage($chat_id, "Product type: Instant Delivery.\nPlease send each deliverable item as a separate message (e.g., a code, a link, account details).\nType /doneitems when you have added all items for '{$user_state['new_product_name']}'.");
+                    sendMessage($chat_id, "Product type: Instant Delivery.\nPlease send each deliverable item as a separate text message or upload it as a file (e.g., a code, a link, account details in a .txt file).\nType /doneitems when you have added all items for '{$user_state['new_product_name']}'.");
                 } else {
                     $user_state['status'] = STATE_ADMIN_ADDING_PROD_ID;
                     setUserState($user_id, $user_state);
@@ -83,23 +83,55 @@ if (isset($update->message)) {
                 break;
 
             case STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS:
-                // $text here is specifically $message->text from the top of the script
-                if (isset($message->text) && $message->text === '/doneitems') { // Check specifically $message->text
+                if (isset($message->text) && $message->text === '/doneitems') {
                     $user_state['status'] = STATE_ADMIN_ADDING_PROD_ID;
                     setUserState($user_id, $user_state);
                     $item_count = count($user_state['new_product_items_buffer'] ?? []);
                     sendMessage($chat_id, "All items for '{$user_state['new_product_name']}' received ({$item_count} items).\nNow, enter a unique ID for this product:");
-                } elseif (isset($message->text) && trim($message->text) !== '') { // Check specifically $message->text and ensure it's not empty
+                } elseif (isset($message->text) && trim($message->text) !== '') {
                     $item_content = trim($message->text);
                     if (!isset($user_state['new_product_items_buffer']) || !is_array($user_state['new_product_items_buffer'])) {
                         $user_state['new_product_items_buffer'] = [];
                     }
                     $user_state['new_product_items_buffer'][] = $item_content;
                     setUserState($user_id, $user_state);
-                    sendMessage($chat_id, "Item added: \"" . htmlspecialchars($item_content) . "\". Send the next item, or type /doneitems if finished.");
-                } else {
-                    // This case handles if $message->text is not set (e.g., file/photo) or is empty/whitespace after trim
-                    sendMessage($chat_id, "⚠️ Invalid input. Please send item content as a plain text message (not a file/photo or empty message). Send the next text item, or type /doneitems if finished.");
+                    sendMessage($chat_id, "Item added (text): \"" . htmlspecialchars($item_content) . "\". Send the next item or file, or type /doneitems if finished.");
+                } elseif (isset($message->document)) {
+                    $file_id = $message->document->file_id;
+                    $file_name = $message->document->file_name ?? 'untitled';
+
+                    // Get file path from Telegram
+                    $file_path_response = apiRequest("getFile", ['file_id' => $file_id]);
+                    if ($file_path_response && $file_path_response->ok) {
+                        $file_path = $file_path_response->result->file_path;
+                        $file_url = "https://api.telegram.org/file/bot" . API_TOKEN . "/" . $file_path;
+
+                        // Download file content
+                        $file_content = file_get_contents($file_url);
+
+                        if ($file_content !== false) {
+                            if (!isset($user_state['new_product_items_buffer']) || !is_array($user_state['new_product_items_buffer'])) {
+                                $user_state['new_product_items_buffer'] = [];
+                            }
+                            $user_state['new_product_items_buffer'][] = $file_content; // Store raw content
+                            setUserState($user_id, $user_state);
+                            sendMessage($chat_id, "Item added from file: \"" . htmlspecialchars($file_name) . "\". Send the next item or file, or type /doneitems if finished.");
+                        } else {
+                            sendMessage($chat_id, "⚠️ Could not download the file content for \"" . htmlspecialchars($file_name) . "\". Please try again or send as text.");
+                            error_log("Failed to download file content for file_id: {$file_id}, url: {$file_url}");
+                        }
+                    } else {
+                        sendMessage($chat_id, "⚠️ Could not retrieve file information for \"" . htmlspecialchars($file_name) . "\". Please try again or send as text.");
+                        error_log("Failed to getFile for file_id: {$file_id}. Response: " . print_r($file_path_response, true));
+                    }
+                }
+                // elseif (isset($message->photo)) { // Optional: Handle photos specifically if needed
+                //     // Similar logic to document, but might need to choose a photo size
+                //     // For now, photos will fall into the 'else'
+                //     sendMessage($chat_id, "⚠️ Photos are not directly processed as items. Please send content as text or a document/file. Or type /doneitems.");
+                // }
+                else {
+                    sendMessage($chat_id, "⚠️ Invalid input. Please send item content as a plain text message or a file. Empty messages or other types are not supported. Send the next item, or type /doneitems if finished.");
                 }
                 break;
 
