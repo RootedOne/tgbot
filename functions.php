@@ -239,6 +239,34 @@ function generateBotStatsText() {
 // ===================================================================
 //  TELEGRAM API FUNCTIONS
 // ===================================================================
+function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
+    global $products;
+    $products = readJsonFile(PRODUCTS_FILE); // Always load fresh products for menu generation
+
+    $keyboard_rows = [];
+
+    // Dynamically add category buttons
+    if (!empty($products)) {
+        foreach ($products as $category_key => $category_items) {
+            if (is_array($category_items)) { // Ensure it's a category structure
+                $displayName = ucfirst(str_replace('_', ' ', $category_key));
+                $keyboard_rows[] = [['text' => "🛍️ " . htmlspecialchars($displayName), 'callback_data' => 'view_category_' . $category_key]];
+            }
+        }
+    }
+
+    // Add static buttons
+    $keyboard_rows[] = [['text' => "📦 My Products", 'callback_data' => CALLBACK_MY_PRODUCTS]]; // Changed emoji for consistency
+    $keyboard_rows[] = [['text' => "❓ Support", 'callback_data' => CALLBACK_SUPPORT]];
+
+    if ($is_admin_menu) {
+        $keyboard_rows[] = [['text' => "⚙️ Admin Panel", 'callback_data' => CALLBACK_ADMIN_PANEL]];
+    }
+
+    return ['inline_keyboard' => $keyboard_rows];
+}
+
+
 function bot($method, $data = []) { $url = "https://api.telegram.org/bot" . API_TOKEN . "/" . $method; $ch = curl_init(); curl_setopt($ch, CURLOPT_URL, $url); curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); curl_setopt($ch, CURLOPT_POSTFIELDS, $data); $res = curl_exec($ch); curl_close($ch); return json_decode($res); }
 function sendMessage($chat_id, $text, $reply_markup = null, $parse_mode = 'HTML') { bot('sendMessage', ['chat_id' => $chat_id, 'text' => $text, 'reply_markup' => $reply_markup, 'parse_mode' => $parse_mode]); }
 function editMessageText($chat_id, $message_id, $text, $reply_markup = null, $parse_mode = 'HTML') { bot('editMessageText', ['chat_id' => $chat_id, 'message_id' => $message_id, 'text' => $text, 'reply_markup' => $reply_markup, 'parse_mode' => $parse_mode]); }
@@ -783,12 +811,30 @@ function processCallbackQuery($callback_query) {
             global $products; if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
             $keyboard_rows_rem_no_list = [];
             if (isset($products[$category_key_rem_no]) && !empty($products[$category_key_rem_no])) {
+    }
+    // New handler for dynamically generated category view buttons
+    elseif (strpos($data, 'view_category_') === 0) {
+        global $products; $products = readJsonFile(PRODUCTS_FILE); // Ensure fresh products
+        $category_key_view = substr($data, strlen('view_category_'));
+        $category_display_name_view = ucfirst(str_replace('_', ' ', $category_key_view));
+
+        if (isset($products[$category_key_view]) && !empty($products[$category_key_view])) {
+            $kb_category_products = generateCategoryKeyboard($category_key_view); // This function uses global $products
+            editMessageText($chat_id, $message_id, "Please select a product from <b>" . htmlspecialchars($category_display_name_view) . "</b>:", $kb_category_products, 'HTML');
+        } else {
+            // Category might be empty or was just removed/renamed
+            $kb_empty_cat = json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]);
+            editMessageText($chat_id, $message_id, "Sorry, no products are currently available in the <b>" . htmlspecialchars($category_display_name_view) . "</b> category, or the category may have been recently updated.", $kb_empty_cat, 'HTML');
+        }
+        return;
                 foreach ($products[$category_key_rem_no] as $pid_loop_no => $details_loop_no) { $keyboard_rows_rem_no_list[] = [['text' => "➖ ".htmlspecialchars($details_loop_no['name']), 'callback_data' => CALLBACK_ADMIN_RP_SPRO_PREFIX . "{$category_key_rem_no}_{$pid_loop_no}"]]; }
             }
             $keyboard_rows_rem_no_list[] = [['text' => '« Back to Select Category', 'callback_data' => CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Product removal cancelled. Select product to REMOVE from '".htmlspecialchars($category_key_rem_no)."':", json_encode(['inline_keyboard' => $keyboard_rows_rem_no_list]));
         }
     }
+    // The following block for static CALLBACK_BUY_SPOTIFY etc. is now removed as it's handled by dynamic view_category_
+    /*
     elseif ($data === CALLBACK_BUY_SPOTIFY || $data === CALLBACK_BUY_SSH || $data === CALLBACK_BUY_V2RAY) {
         global $products; $products = readJsonFile(PRODUCTS_FILE); // Refresh products
         $category_key_buy = ''; $category_name_buy = '';
@@ -799,7 +845,7 @@ function processCallbackQuery($callback_query) {
         elseif ($data === CALLBACK_BUY_V2RAY) { $category_key_buy = 'v2ray_plan'; $category_name_buy = 'V2Ray VPN'; }
 
         if (!empty($category_key_buy)) {
-            global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
+            // global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } // Already refreshed
             if (isset($products[$category_key_buy]) && !empty($products[$category_key_buy])) {
                 $kb_buy_cat = generateCategoryKeyboard($category_key_buy);
                 editMessageText($chat_id, $message_id, "Please select a {$category_name_buy} plan:", $kb_buy_cat);
@@ -808,6 +854,7 @@ function processCallbackQuery($callback_query) {
             }
         }
     }
+    */
     // This regex needs to be general enough for any category key, not just specific ones.
     // Example: 'categorykey_productid'
     elseif (preg_match('/^([a-zA-Z0-9_]+)_([a-zA-Z0-9_]+)$/', $data, $matches_prod_select) &&
@@ -919,8 +966,9 @@ function processCallbackQuery($callback_query) {
         clearUserState($user_id); // Clear any pending state when going to main menu
         $first_name_main = $callback_query->from->first_name;
         $welcome_text_main = "Hello, " . htmlspecialchars($first_name_main) . "! Welcome back to the main menu.\n\nPlease select an option:";
-        $keyboard_main = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard; // Assumes these global keyboards are defined
-        editMessageText($chat_id, $message_id, $welcome_text_main, $keyboard_main);
+        // $keyboard_main = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard; // Old static keyboards
+        $keyboard_main_array = generateDynamicMainMenuKeyboard($is_admin); // New dynamic keyboard
+        editMessageText($chat_id, $message_id, $welcome_text_main, json_encode($keyboard_main_array));
     }
 }
 ?>

@@ -482,8 +482,9 @@ if (isset($update->message)) {
         elseif ($text === "/start") {
             $first_name = $message->from->first_name;
             $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome to the shop.\n\nPlease select an option:";
-            $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard; 
-            sendMessage($chat_id, $welcome_text, $keyboard);
+            // $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard; // Old static keyboards
+            $keyboard_array = generateDynamicMainMenuKeyboard($is_admin); // New dynamic keyboard
+            sendMessage($chat_id, $welcome_text, json_encode($keyboard_array));
         }
         // User sends a photo receipt
         elseif (isset($message->photo)) {

@@ -12,7 +12,7 @@ define('API_TOKEN', '7191984881:AAH1BBX3S6SKNCKGkjKnKZj2OTto_bfg2ZI'); // Replac
 define('STATE_ADMIN_ADDING_PROD_NAME', 'admin_adding_prod_name');
 define('STATE_ADMIN_ADDING_PROD_TYPE_PROMPT', 'admin_adding_prod_type_prompt');
 define('STATE_ADMIN_ADDING_PROD_PRICE', 'admin_adding_prod_price');
-define('STATE_ADMIN_ADDING_PROD_INFO', 'admin_adding_prod_info'); 
+define('STATE_ADMIN_ADDING_PROD_INFO', 'admin_adding_prod_info');
 define('STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS', 'admin_adding_prod_instant_items');
 define('STATE_ADMIN_ADDING_PROD_ID', 'admin_adding_prod_id');
 define('STATE_ADMIN_ADDING_PROD_MANUAL', 'admin_adding_prod_manual');
@@ -29,18 +29,18 @@ define('CALLBACK_ADMIN_PROD_MANAGEMENT', 'admin_prod_management');
 define('CALLBACK_BACK_TO_MAIN', 'back_to_main');
 define('CALLBACK_MY_PRODUCTS', 'my_products');
 define('CALLBACK_SUPPORT', 'support');
-define('CALLBACK_SUPPORT_CONFIRM', 'support_confirm'); 
+define('CALLBACK_SUPPORT_CONFIRM', 'support_confirm');
 
 // Admin Add Product
 define('CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY', 'admin_add_prod_select_category');
-define('CALLBACK_ADMIN_AP_CAT_PREFIX', 'admin_ap_cat_'); 
+define('CALLBACK_ADMIN_AP_CAT_PREFIX', 'admin_ap_cat_');
 define('CALLBACK_ADMIN_SET_PROD_TYPE_INSTANT', 'admin_set_prod_type_instant');
 define('CALLBACK_ADMIN_SET_PROD_TYPE_MANUAL', 'admin_set_prod_type_manual');
 
 // Admin Edit Product
 define('CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY', 'admin_edit_prod_select_category');
-define('CALLBACK_ADMIN_EP_SCAT_PREFIX', 'admin_ep_scat_'); 
-define('CALLBACK_ADMIN_EP_SPRO_PREFIX', 'admin_ep_spro_'); 
+define('CALLBACK_ADMIN_EP_SCAT_PREFIX', 'admin_ep_scat_');
+define('CALLBACK_ADMIN_EP_SPRO_PREFIX', 'admin_ep_spro_');
 define('CALLBACK_ADMIN_EDIT_NAME_PREFIX', 'admin_edit_name_');
 define('CALLBACK_ADMIN_EDIT_PRICE_PREFIX', 'admin_edit_price_');
 define('CALLBACK_ADMIN_EDIT_INFO_PREFIX', 'admin_edit_info_');
@@ -56,10 +56,10 @@ define('CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX', 'admin_remove_inst_item_do_'
 
 // Admin Remove Product
 define('CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY', 'admin_remove_prod_select_category');
-define('CALLBACK_ADMIN_RP_SCAT_PREFIX', 'admin_rp_scat_'); 
-define('CALLBACK_ADMIN_RP_SPRO_PREFIX', 'admin_rp_spro_'); 
+define('CALLBACK_ADMIN_RP_SCAT_PREFIX', 'admin_rp_scat_');
+define('CALLBACK_ADMIN_RP_SPRO_PREFIX', 'admin_rp_spro_');
 define('CALLBACK_ADMIN_RP_CONF_YES_PREFIX', 'admin_rp_conf_yes_');
-define('CALLBACK_ADMIN_RP_CONF_NO_PREFIX', 'admin_rp_conf_no_'); 
+define('CALLBACK_ADMIN_RP_CONF_NO_PREFIX', 'admin_rp_conf_no_');
 
 // Admin Stats
 define('CALLBACK_ADMIN_VIEW_STATS', 'admin_view_stats');
@@ -68,10 +68,10 @@ define('CALLBACK_ADMIN_VIEW_STATS', 'admin_view_stats');
 define('CALLBACK_ACCEPT_PAYMENT_PREFIX', 'accept_payment_');
 define('CALLBACK_REJECT_PAYMENT_PREFIX', 'reject_payment_');
 
-// Product Purchase Callbacks (Main Menu initiated)
-define('CALLBACK_BUY_SPOTIFY', 'buy_spotify');
-define('CALLBACK_BUY_SSH', 'buy_ssh');
-define('CALLBACK_BUY_V2RAY', 'buy_v2ray');
+// Product Purchase Callbacks (Main Menu initiated) - These are now replaced by dynamic menu view_category_...
+// define('CALLBACK_BUY_SPOTIFY', 'buy_spotify');
+// define('CALLBACK_BUY_SSH', 'buy_ssh');
+// define('CALLBACK_BUY_V2RAY', 'buy_v2ray');
 // For product selection within a category like "spotify_plan_PRODUCTID"
 // These are more like patterns than fixed prefixes for single actions.
 // Example: 'spotify_plan_', 'ssh_plan_', 'v2ray_plan_' are category keys used in product selection.
@@ -81,26 +81,33 @@ define('CALLBACK_CONFIRM_BUY_PREFIX', 'confirm_buy_'); // confirm_buy_CATEGORY_P
 
 
 // --- Main Menu Keyboard ---
+// These are now generated dynamically by generateDynamicMainMenuKeyboard() in functions.php
+/*
 $mainMenuKeyboard = json_encode([
     'inline_keyboard' => [
         [['text' => "🛍️ My Products", 'callback_data' => CALLBACK_MY_PRODUCTS]],
-        [['text' => "Buy Spotify Account", 'callback_data' => CALLBACK_BUY_SPOTIFY]],
-        [['text' => "Buy SSH Vpn Account", 'callback_data' => CALLBACK_BUY_SSH]],
-        [['text' => "Buy V2ray Vpn Account", 'callback_data' => CALLBACK_BUY_V2RAY]],
+        // The following lines are examples of what was here and is now dynamic
+        // [['text' => "Buy Spotify Account", 'callback_data' => CALLBACK_BUY_SPOTIFY]],
+        // [['text' => "Buy SSH Vpn Account", 'callback_data' => CALLBACK_BUY_SSH]],
+        // [['text' => "Buy V2ray Vpn Account", 'callback_data' => CALLBACK_BUY_V2RAY]],
         [['text' => "Support", 'callback_data' => CALLBACK_SUPPORT]],
     ]
 ]);
+*/
 
 // --- Admin Menu Keyboard ---
+// These are now generated dynamically by generateDynamicMainMenuKeyboard() in functions.php
+/*
 $adminMenuKeyboard = json_encode([
     'inline_keyboard' => [
-        [['text' => "🛍️ My Products", 'callback_data' => CALLBACK_MY_PRODUCTS]], 
-        [['text' => "Buy Spotify Account", 'callback_data' => CALLBACK_BUY_SPOTIFY]],
-        [['text' => "Buy SSH Vpn Account", 'callback_data' => CALLBACK_BUY_SSH]],
-        [['text' => "Buy V2ray Vpn Account", 'callback_data' => CALLBACK_BUY_V2RAY]],
+        [['text' => "🛍️ My Products", 'callback_data' => CALLBACK_MY_PRODUCTS]],
+        // The following lines are examples of what was here and is now dynamic
+        // [['text' => "Buy Spotify Account", 'callback_data' => CALLBACK_BUY_SPOTIFY]],
+        // [['text' => "Buy SSH Vpn Account", 'callback_data' => CALLBACK_BUY_SSH]],
+        // [['text' => "Buy V2ray Vpn Account", 'callback_data' => CALLBACK_BUY_V2RAY]],
         [['text' => "Support", 'callback_data' => CALLBACK_SUPPORT]],
         [['text' => "⚙️ Admin Panel", 'callback_data' => CALLBACK_ADMIN_PANEL]],
     ]
 ]);
-
+*/
 ?>
