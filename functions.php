@@ -798,7 +798,7 @@ function processCallbackQuery($callback_query) {
     elseif (
         preg_match('/^(.*)_([^_]+)$/', $data, $matches_prod_select) &&
         (strpos($data, 'view_category_') !== 0) &&
-        (strpos($data, 'admin_') !== 0) && // Ensure it's not an admin callback caught here by mistake
+        (strpos($data, 'admin_') !== 0) &&
         ($data !== CALLBACK_BACK_TO_MAIN) &&
         ($data !== CALLBACK_MY_PRODUCTS) &&
         ($data !== CALLBACK_SUPPORT) &&
@@ -806,7 +806,7 @@ function processCallbackQuery($callback_query) {
         (strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) !== 0) &&
         (strpos($data, CALLBACK_REJECT_PAYMENT_PREFIX) !== 0)
     ) {
-        error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
+        // error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'"); // Kept for now
         global $products; $products = readJsonFile(PRODUCTS_FILE);
 
         $category_key_select = $matches_prod_select[1];
@@ -852,7 +852,7 @@ function processCallbackQuery($callback_query) {
                 'product_id' => $product_id_confirm_buy
             ]);
             $paymentDets_buy = getPaymentDetails();
-            $text_buy_confirm = "To complete your purchase for *".htmlspecialchars($product_to_buy['name'])."* (Price: *$".htmlspecialchars($product_to_buy['price'])."*), please transfer the amount to:\n\n"; // Changed <b> to *
+            $text_buy_confirm = "To complete your purchase for *".htmlspecialchars($product_to_buy['name'])."* (Price: *$".htmlspecialchars($product_to_buy['price'])."*), please transfer the amount to:\n\n";
             $text_buy_confirm .= "Card Number: `".htmlspecialchars($paymentDets_buy['card_number'])."`\n";
             $text_buy_confirm .= "Card Holder: `".htmlspecialchars($paymentDets_buy['card_holder'])."`\n\n";
             $text_buy_confirm .= "After making the payment, please send a screenshot of the transaction receipt to this chat.\n\nType /cancel to cancel this purchase.";
@@ -876,28 +876,63 @@ function processCallbackQuery($callback_query) {
         error_log("PAY_CONF: TargetUserID: '" . $target_user_id_payment . "', Action: " . ($is_accept_payment ? "Accept" : "Reject"));
 
         $original_caption_payment = $callback_query->message->caption ?? '';
-        $product_name_from_receipt = "Unknown Product (from receipt)";
-        $price_from_receipt = "N/A";
+        // $product_name_from_receipt = "Unknown Product (from receipt)"; // Using state instead
+        // $price_from_receipt = "N/A"; // Using state instead
 
-        if(preg_match("/▪️ \*\*Product:\*\* (.*?)\n/", $original_caption_payment, $cap_matches_name_pay)){ $product_name_from_receipt = trim($cap_matches_name_pay[1]); }
-        if(preg_match("/▪️ \*\*Price:\*\* \$(.*?)\n/", $original_caption_payment, $cap_matches_price_pay)){ $price_from_receipt = trim($cap_matches_price_pay[1]); }
-        error_log("PAY_CONF: Parsed from caption - Product: {$product_name_from_receipt}, Price: {$price_from_receipt}");
+        // if(preg_match("/▪️ \*\*Product:\*\* (.*?)\n/", $original_caption_payment, $cap_matches_name_pay)){ $product_name_from_receipt = trim($cap_matches_name_pay[1]); }
+        // if(preg_match("/▪️ \*\*Price:\*\* \$(.*?)\n/", $original_caption_payment, $cap_matches_price_pay)){ $price_from_receipt = trim($cap_matches_price_pay[1]); }
+        // error_log("PAY_CONF: Parsed from caption - Product: {$product_name_from_receipt}, Price: {$price_from_receipt}"); // Old method
 
         if ($is_accept_payment) {
-            error_log("PAY_CONF: Attempting to record purchase for " . $target_user_id_payment);
-            recordPurchase($target_user_id_payment, $product_name_from_receipt, $price_from_receipt);
+            $target_user_state = getUserState($target_user_id_payment);
+            if (!$target_user_state || !isset($target_user_state['category_key']) || !isset($target_user_state['product_id']) || !isset($target_user_state['product_name']) || !isset($target_user_state['price'])) {
+                error_log("PAY_CONF: Could not retrieve original purchase state for user {$target_user_id_payment}. Callback: {$data}");
+                editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n⚠️ ERROR: Could not retrieve original purchase details for instant delivery. Please handle manually or check logs. User has been notified to contact support.", null, 'Markdown');
+                sendMessage($target_user_id_payment, "⚠️ There was an issue processing your payment automatically. An admin has been notified. Please contact support if you need assistance.");
+                return;
+            }
+            $category_key = $target_user_state['category_key'];
+            $product_id = $target_user_state['product_id'];
+            $purchased_product_name = $target_user_state['product_name'];
+            $purchased_product_price = $target_user_state['price'];
 
-            error_log("PAY_CONF: Attempting to edit message caption. ChatID: {$chat_id}, MessageID: {$message_id}");
-            editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n✅ PAYMENT ACCEPTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").", null, 'Markdown');
+            error_log("PAY_CONF: Processing acceptance for User: {$target_user_id_payment}, Product: {$purchased_product_name} ({$category_key}/{$product_id}), Price: {$purchased_product_price}");
 
-            error_log("PAY_CONF: Attempting to send confirmation to user " . $target_user_id_payment);
-            sendMessage($target_user_id_payment, "✅ Great news! Your payment for '<b>".htmlspecialchars($product_name_from_receipt)."</b>' has been accepted. You can find your item in 'My Products'.");
-        } else {
-            error_log("PAY_CONF: Payment rejected. Attempting to edit message caption. ChatID: {$chat_id}, MessageID: {$message_id}");
+            $product_details = getProductDetails($category_key, $product_id);
+
+            if ($product_details && isset($product_details['type']) && $product_details['type'] === 'instant') {
+                error_log("PAY_CONF: Instant product identified. Attempting to fetch item.");
+                $item_to_deliver = getAndRemoveInstantProductItem($category_key, $product_id);
+                if ($item_to_deliver) {
+                    recordPurchase($target_user_id_payment, $purchased_product_name, $purchased_product_price . " (Instant Item Delivered)");
+                    editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n✅ PAYMENT ACCEPTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A')."). Item '" . substr($item_to_deliver, 0, 20) ."...' sent to user.", null, 'Markdown');
+                    sendMessage($target_user_id_payment, "🎉 Your payment for '<b>".htmlspecialchars($purchased_product_name)."</b>' has been accepted!\n\nHere is your item:\n`" . htmlspecialchars($item_to_deliver) . "`");
+                    error_log("PAY_CONF: Instant item '{$item_to_deliver}' delivered to user {$target_user_id_payment} for product {$category_key}/{$product_id}.");
+                } else {
+                    error_log("PAY_CONF: Instant product '{$category_key}/{$product_id}' OUT OF STOCK or error fetching item for user {$target_user_id_payment}.");
+                    recordPurchase($target_user_id_payment, $purchased_product_name, $purchased_product_price . " (Instant - ITEM OUT OF STOCK)");
+                    editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n✅ PAYMENT ACCEPTED by admin {$user_id}. ⚠️ BUT ITEM OUT OF STOCK for user {$target_user_id_payment} for '{$purchased_product_name}'. Please handle manually.", null, 'Markdown');
+                    sendMessage($target_user_id_payment, "🎉 Your payment for '<b>".htmlspecialchars($purchased_product_name)."</b>' has been accepted!\n\nUnfortunately, there was an issue automatically delivering your item. An admin will provide it to you shortly. Please contact support if you don't hear back.");
+                }
+            } else {
+                error_log("PAY_CONF: Manual product or product details not found for {$category_key}/{$product_id}. Proceeding with standard purchase record.");
+                recordPurchase($target_user_id_payment, $purchased_product_name, $purchased_product_price);
+                editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n✅ PAYMENT ACCEPTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A')."). Product recorded for manual delivery.", null, 'Markdown');
+                sendMessage($target_user_id_payment, "✅ Great news! Your payment for '<b>".htmlspecialchars($purchased_product_name)."</b>' has been accepted! It will be delivered by an admin shortly. You can see it in 'My Products'.");
+            }
+            clearUserState($target_user_id_payment);
+        } else { // Payment Rejected
+            error_log("PAY_CONF: Payment rejected by admin {$user_id} for user {$target_user_id_payment}. Data: {$data}");
+            // Attempt to get product name from state if available, otherwise from caption
+            $target_user_state = getUserState($target_user_id_payment);
+            $rejected_product_name = $product_name_from_receipt; // Fallback to caption parse
+            if ($target_user_state && isset($target_user_state['product_name'])) {
+                $rejected_product_name = $target_user_state['product_name'];
+            }
+
             editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n❌ PAYMENT REJECTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").", null, 'Markdown');
-
-            error_log("PAY_CONF: Attempting to send rejection notification to user " . $target_user_id_payment);
-            sendMessage($target_user_id_payment, "⚠️ We regret to inform you that your payment for '<b>".htmlspecialchars($product_name_from_receipt)."</b>' has been rejected. If you believe this is an error, or for more details, please contact support by pressing the Support button.");
+            sendMessage($target_user_id_payment, "⚠️ We regret to inform you that your payment for '<b>".htmlspecialchars($rejected_product_name)."</b>' has been rejected. If you believe this is an error, or for more details, please contact support by pressing the Support button.");
+            clearUserState($target_user_id_payment); // Clear state on rejection too
         }
     }
     elseif ($data === CALLBACK_BACK_TO_MAIN) {
@@ -910,5 +945,3 @@ function processCallbackQuery($callback_query) {
 }
 ?>
 ```
-
-[end of functions.php]
