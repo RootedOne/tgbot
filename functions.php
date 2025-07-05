@@ -270,10 +270,15 @@ function processCallbackQuery($callback_query) {
             $keyboard_rows[] = [['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Select product to edit in " . htmlspecialchars($category_key) . ":", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
-        elseif (strpos($data, CALLBACK_ADMIN_EP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_EP_SPRO_PREFIX, '/') . '([^_]+)_(.+)$/', $data, $matches)) {
+        elseif (strpos($data, CALLBACK_ADMIN_EP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_EP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
             $category_key = $matches[1]; $product_id = $matches[2];
             $p = getProductDetails($category_key, $product_id);
-            if (!$p) { /* error handling */ return; }
+            if (!$p) {
+                error_log("EP_SPRO: Product not found. Data: {$data}, Category: {$category_key}, ProductID: {$product_id}");
+                $error_kb = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $category_key]]]]);
+                editMessageText($chat_id, $message_id, "Error: Product '{$product_id}' in category '{$category_key}' not found. It might have been removed or the ID is incorrect.", $error_kb);
+                return;
+            }
             $kb = [
                 [['text' => "✏️ Name", 'callback_data' => CALLBACK_ADMIN_EDIT_NAME_PREFIX . "{$category_key}_{$product_id}"]],
                 [['text' => "💲 Price", 'callback_data' => CALLBACK_ADMIN_EDIT_PRICE_PREFIX . "{$category_key}_{$product_id}"]],
@@ -381,8 +386,15 @@ function processCallbackQuery($callback_query) {
             $keyboard_rows[] = [['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Select product to REMOVE in ".htmlspecialchars($category_key).": (⚠️ Permanent!)", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
-        elseif (strpos($data, CALLBACK_ADMIN_RP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_RP_SPRO_PREFIX, '/') . '([^_]+)_(.+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2]; $p = getProductDetails($category_key, $product_id); if(!$p) return;
+        elseif (strpos($data, CALLBACK_ADMIN_RP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_RP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
+            $category_key = $matches[1]; $product_id = $matches[2];
+            $p = getProductDetails($category_key, $product_id);
+            if(!$p) {
+                error_log("RP_SPRO: Product not found. Data: {$data}, Category: {$category_key}, ProductID: {$product_id}");
+                $error_kb = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_RP_SCAT_PREFIX . $category_key]]]]);
+                editMessageText($chat_id, $message_id, "Error: Product '{$product_id}' in category '{$category_key}' not found when trying to remove. It might have already been removed.", $error_kb);
+                return;
+            }
             $kb = [[['text' => "✅ YES, REMOVE", 'callback_data' => CALLBACK_ADMIN_RP_CONF_YES_PREFIX."{$category_key}_{$product_id}"], ['text' => "❌ NO, CANCEL", 'callback_data' => CALLBACK_ADMIN_RP_CONF_NO_PREFIX."{$category_key}_{$product_id}"]], [['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_RP_SCAT_PREFIX.$category_key]]];
             editMessageText($chat_id, $message_id, "⚠️ Confirm Removal: ".htmlspecialchars($p['name'])."?", json_encode(['inline_keyboard'=>$kb]), 'HTML');
         }
