@@ -290,16 +290,7 @@ function forwardPhotoToAdmin($file_id, $caption, $original_user_id) {
     ]]);
     bot('sendPhoto', ['chat_id' => $admin_id, 'photo' => $file_id, 'caption' => $caption, 'parse_mode' => 'Markdown', 'reply_markup' => $approval_keyboard]);
 }
-function generateCategoryKeyboard($category_key) {
-    global $products;
-    $keyboard = ['inline_keyboard' => []];
-    $category_products = $products[$category_key] ?? [];
-    foreach ($category_products as $id => $details) {
-        $keyboard['inline_keyboard'][] = [['text' => "{$details['name']} - \${$details['price']}", 'callback_data' => "{$category_key}_{$id}"]];
-    }
-    $keyboard['inline_keyboard'][] = [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]];
-    return json_encode($keyboard);
-}
+// Removed duplicated generateCategoryKeyboard() definition here. The one below with logging is kept.
 
 function generateCategoryKeyboard($category_key) {
     error_log("GEN_CAT_KB: Called for category: " . $category_key); // LOG START
@@ -616,13 +607,33 @@ function processCallbackQuery($callback_query) {
             $keyboard_rows[] = [['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Select product to edit in '" . htmlspecialchars($category_key) . "':", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
-        elseif (strpos($data, CALLBACK_ADMIN_EP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_EP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2];
+        elseif (strpos($data, CALLBACK_ADMIN_EP_SPRO_PREFIX) === 0) {
+            $ids_str = substr($data, strlen(CALLBACK_ADMIN_EP_SPRO_PREFIX));
+            $category_key = null;
+            $product_id = null;
+
+            global $products; // Ensure $products is available for array_keys
+            if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
+
+            foreach (array_keys($products) as $known_cat_key) {
+                if (strpos($ids_str, $known_cat_key . '_') === 0) {
+                    $category_key = $known_cat_key;
+                    $product_id = substr($ids_str, strlen($known_cat_key) + 1);
+                    break;
+                }
+            }
+
+            if (!$category_key || !$product_id) {
+                error_log("EP_SPRO: Failed to parse category/product from data: {$data}. Derived ids_str: {$ids_str}");
+                editMessageText($chat_id, $message_id, "Error: Could not determine product from callback data. Invalid format.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_PROD_MANAGEMENT]]]])); // Fallback to main prod mgt
+                return;
+            }
+
             $p = getProductDetails($category_key, $product_id);
             if (!$p) {
-                error_log("EP_SPRO: Product not found. Data: {$data}, Category: {$category_key}, ProductID: {$product_id}");
+                error_log("EP_SPRO: Product not found. Data: {$data}, Parsed Category: {$category_key}, Parsed ProductID: {$product_id}");
                 $error_kb = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $category_key]]]]);
-                editMessageText($chat_id, $message_id, "Error: Product '{$product_id}' in category '{$category_key}' not found. It might have been removed or the ID is incorrect.", $error_kb);
+                editMessageText($chat_id, $message_id, "Error: Product '" . htmlspecialchars($product_id) . "' in category '" . htmlspecialchars($category_key) . "' not found. It might have been removed or the ID is incorrect.", $error_kb);
                 return;
             }
             $kb_rows_edit_prod = [
@@ -798,13 +809,33 @@ function processCallbackQuery($callback_query) {
             $keyboard_rows_rem_prod[] = [['text' => '« Back to Select Category', 'callback_data' => CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Select product to REMOVE from '".htmlspecialchars($category_key_rem_prod)."':\n(⚠️ This action is permanent!)", json_encode(['inline_keyboard' => $keyboard_rows_rem_prod]), 'HTML');
         }
-        elseif (strpos($data, CALLBACK_ADMIN_RP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_RP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches_rem_spro)) {
-            $category_key_rem_confirm = $matches_rem_spro[1]; $product_id_rem_confirm = $matches_rem_spro[2];
+        elseif (strpos($data, CALLBACK_ADMIN_RP_SPRO_PREFIX) === 0) {
+            $ids_str_rp = substr($data, strlen(CALLBACK_ADMIN_RP_SPRO_PREFIX));
+            $category_key_rem_confirm = null;
+            $product_id_rem_confirm = null;
+
+            global $products; // Ensure $products is available for array_keys
+            if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
+
+            foreach (array_keys($products) as $known_cat_key_rp) {
+                if (strpos($ids_str_rp, $known_cat_key_rp . '_') === 0) {
+                    $category_key_rem_confirm = $known_cat_key_rp;
+                    $product_id_rem_confirm = substr($ids_str_rp, strlen($known_cat_key_rp) + 1);
+                    break;
+                }
+            }
+
+            if (!$category_key_rem_confirm || !$product_id_rem_confirm) {
+                error_log("RP_SPRO: Failed to parse category/product from data: {$data}. Derived ids_str: {$ids_str_rp}");
+                editMessageText($chat_id, $message_id, "Error: Could not determine product for removal from callback data. Invalid format.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_PROD_MANAGEMENT]]]])); // Fallback
+                return;
+            }
+
             $p_rem_confirm = getProductDetails($category_key_rem_confirm, $product_id_rem_confirm);
             if(!$p_rem_confirm) {
-                error_log("RP_SPRO (Confirm): Product not found. Data: {$data}, Category: {$category_key_rem_confirm}, ProductID: {$product_id_rem_confirm}");
+                error_log("RP_SPRO (Confirm): Product not found. Data: {$data}, Parsed Category: {$category_key_rem_confirm}, Parsed ProductID: {$product_id_rem_confirm}");
                 $error_kb_rem_confirm = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_RP_SCAT_PREFIX . $category_key_rem_confirm]]]]);
-                editMessageText($chat_id, $message_id, "Error: Product '{$product_id_rem_confirm}' in category '{$category_key_rem_confirm}' not found. It might have already been removed.", $error_kb_rem_confirm);
+                editMessageText($chat_id, $message_id, "Error: Product '" . htmlspecialchars($product_id_rem_confirm) . "' in category '" . htmlspecialchars($category_key_rem_confirm) . "' not found. It might have already been removed.", $error_kb_rem_confirm);
                 return;
             }
             $kb_rem_confirm = [
