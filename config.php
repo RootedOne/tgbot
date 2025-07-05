@@ -20,6 +20,9 @@ define('STATE_ADMIN_EDITING_PROD_FIELD', 'admin_editing_prod_field');
 define('STATE_ADMIN_ADDING_SINGLE_INSTANT_ITEM', 'admin_adding_single_instant_item');
 define('STATE_AWAITING_SUPPORT_MESSAGE', 'awaiting_support_message');
 define('STATE_AWAITING_RECEIPT', 'awaiting_receipt');
+// New states for category management
+define('STATE_ADMIN_ADDING_CATEGORY_NAME', 'state_admin_adding_category_name');
+define('STATE_ADMIN_EDITING_CATEGORY_NAME', 'state_admin_editing_category_name');
 // Note: 'admin_adding_prod_info_prompt' was a transient state name used before setting 'admin_adding_prod_info', so not making it a global constant.
 
 // --- Callback Data Prefixes/Actions ---
@@ -45,8 +48,8 @@ define('CALLBACK_ADMIN_EDIT_NAME_PREFIX', 'admin_edit_name_');
 define('CALLBACK_ADMIN_EDIT_PRICE_PREFIX', 'admin_edit_price_');
 define('CALLBACK_ADMIN_EDIT_INFO_PREFIX', 'admin_edit_info_');
 define('CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX', 'admin_edit_type_prompt_');
-define('CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX', 'admin_set_type_to_instant_');
-define('CALLBACK_ADMIN_SET_TYPE_TO_MANUAL_PREFIX', 'admin_set_type_to_manual_');
+define('CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX', 'admin_set_type_inst_'); // Standardized
+define('CALLBACK_ADMIN_SET_TYPE_TO_MANUAL_PREFIX', 'admin_set_type_man_');   // Standardized
 
 // Admin Manage Instant Items (within Edit)
 define('CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX', 'admin_manage_instant_items_');
@@ -63,6 +66,15 @@ define('CALLBACK_ADMIN_RP_CONF_NO_PREFIX', 'admin_rp_conf_no_');
 
 // Admin Stats
 define('CALLBACK_ADMIN_VIEW_STATS', 'admin_view_stats');
+
+// Category Management (Admin) - New Constants
+define('CALLBACK_ADMIN_CATEGORY_MANAGEMENT', 'admin_category_management');
+define('CALLBACK_ADMIN_ADD_CATEGORY_PROMPT', 'admin_add_category_prompt');
+define('CALLBACK_ADMIN_EDIT_CATEGORY_SELECT', 'admin_edit_category_select');
+define('CALLBACK_ADMIN_EDIT_CATEGORY_PROMPT_PREFIX', 'admin_edit_cat_prompt_');
+define('CALLBACK_ADMIN_REMOVE_CATEGORY_SELECT', 'admin_remove_category_select');
+define('CALLBACK_ADMIN_REMOVE_CATEGORY_CONFIRM_PREFIX', 'admin_rem_cat_conf_');
+define('CALLBACK_ADMIN_REMOVE_CATEGORY_DO_PREFIX', 'admin_rem_cat_do_');
 
 // Payment Callbacks
 define('CALLBACK_ACCEPT_PAYMENT_PREFIX', 'accept_payment_');
