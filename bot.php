@@ -101,8 +101,8 @@ if (isset($update->message)) {
                     $file_name = $message->document->file_name ?? 'untitled';
 
                     // Get file path from Telegram
-                    $file_path_response = apiRequest("getFile", ['file_id' => $file_id]);
-                    if ($file_path_response && $file_path_response->ok) {
+                    $file_path_response = bot("getFile", ['file_id' => $file_id]); // Changed apiRequest to bot
+                    if ($file_path_response && isset($file_path_response->ok) && $file_path_response->ok) { // Added isset for ok property
                         $file_path = $file_path_response->result->file_path;
                         $file_url = "https://api.telegram.org/file/bot" . API_TOKEN . "/" . $file_path;
 
