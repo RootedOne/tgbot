@@ -480,11 +480,17 @@ if (isset($update->message)) {
         }
         // User sends /start
         elseif ($text === "/start") {
+            error_log("START_CMD: /start command received for chat_id: {$chat_id}, user_id: {$user_id}, is_admin: " . ($is_admin ? 'Yes' : 'No')); // LOG START_CMD
             $first_name = $message->from->first_name;
             $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome to the shop.\n\nPlease select an option:";
-            // $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard; // Old static keyboards
+
             $keyboard_array = generateDynamicMainMenuKeyboard($is_admin); // New dynamic keyboard
-            sendMessage($chat_id, $welcome_text, json_encode($keyboard_array));
+            error_log("START_CMD: Keyboard array received: " . print_r($keyboard_array, true)); // LOG KEYBOARD_ARRAY
+
+            $json_keyboard = json_encode($keyboard_array);
+            error_log("START_CMD: JSON keyboard: " . $json_keyboard); // LOG JSON_KEYBOARD
+
+            sendMessage($chat_id, $welcome_text, $json_keyboard);
         }
         // User sends a photo receipt
         elseif (isset($message->photo)) {

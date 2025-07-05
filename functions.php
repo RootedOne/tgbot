@@ -240,6 +240,7 @@ function generateBotStatsText() {
 //  TELEGRAM API FUNCTIONS
 // ===================================================================
 function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
+    error_log("START_MENU: generateDynamicMainMenuKeyboard called. Admin: " . ($is_admin_menu ? 'Yes' : 'No')); // LOG START
     global $products;
     $products = readJsonFile(PRODUCTS_FILE); // Always load fresh products for menu generation
 
@@ -248,22 +249,28 @@ function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
     // Dynamically add category buttons
     if (!empty($products)) {
         foreach ($products as $category_key => $category_items) {
-            if (is_array($category_items)) { // Ensure it's a category structure
+            // CRITICAL CHECK: Ensure $category_key is a valid string and $category_items is an array.
+            if (is_string($category_key) && !empty($category_key) && is_array($category_items)) {
                 $displayName = ucfirst(str_replace('_', ' ', $category_key));
                 $keyboard_rows[] = [['text' => "🛍️ " . htmlspecialchars($displayName), 'callback_data' => 'view_category_' . $category_key]];
+            } else {
+                error_log("START_MENU: Skipped invalid top-level item in products.json. Key: " . print_r($category_key, true) . " Items: " . print_r($category_items, true));
             }
         }
     }
 
     // Add static buttons
-    $keyboard_rows[] = [['text' => "📦 My Products", 'callback_data' => CALLBACK_MY_PRODUCTS]]; // Changed emoji for consistency
-    $keyboard_rows[] = [['text' => "❓ Support", 'callback_data' => CALLBACK_SUPPORT]];
+    // Ensure these constants are valid strings.
+    $keyboard_rows[] = [['text' => "📦 My Products", 'callback_data' => (string)CALLBACK_MY_PRODUCTS]];
+    $keyboard_rows[] = [['text' => "❓ Support", 'callback_data' => (string)CALLBACK_SUPPORT]];
 
     if ($is_admin_menu) {
-        $keyboard_rows[] = [['text' => "⚙️ Admin Panel", 'callback_data' => CALLBACK_ADMIN_PANEL]];
+        $keyboard_rows[] = [['text' => "⚙️ Admin Panel", 'callback_data' => (string)CALLBACK_ADMIN_PANEL]];
     }
 
-    return ['inline_keyboard' => $keyboard_rows];
+    $final_keyboard_structure = ['inline_keyboard' => $keyboard_rows];
+    error_log("START_MENU: Returning keyboard structure: " . print_r($final_keyboard_structure, true)); // LOG RETURN
+    return $final_keyboard_structure;
 }
 
 
