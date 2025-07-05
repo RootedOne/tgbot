@@ -248,7 +248,9 @@ function processCallbackQuery($callback_query) {
             $admin_panel_keyboard_def = [
                 'inline_keyboard' => [
                     [['text' => "📦 Product Management", 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]],
+                    [['text' => "🗂️ Category Management", 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]], // New Button
                     [['text' => "📊 View Bot Stats", 'callback_data' => CALLBACK_ADMIN_VIEW_STATS]],
+                    // Future buttons can be added here
                     [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]
                 ]
             ];
@@ -271,6 +273,179 @@ function processCallbackQuery($callback_query) {
                 ]
             ];
             editMessageText($chat_id, $message_id, "📦 Product Management 📦", json_encode($prod_mgt_keyboard));
+        }
+        elseif ($data === CALLBACK_ADMIN_CATEGORY_MANAGEMENT) { // New Handler for Category Management Menu
+            if (!$is_admin) { sendMessage($chat_id, "Access denied."); return; }
+            $cat_mgt_keyboard = [
+                'inline_keyboard' => [
+                    [['text' => "➕ Add New Category", 'callback_data' => CALLBACK_ADMIN_CAT_ADD_PROMPT]],
+                    [['text' => "✏️ Edit Category Name", 'callback_data' => CALLBACK_ADMIN_CAT_EDIT_SELECT_OLD_KEY]],
+                    [['text' => "➖ Remove Category", 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_SELECT_KEY]],
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            editMessageText($chat_id, $message_id, "🗂️ Category Management 🗂️", json_encode($cat_mgt_keyboard));
+        }
+        elseif ($data === CALLBACK_ADMIN_CAT_ADD_PROMPT) {
+            if (!$is_admin) { sendMessage($chat_id, "Access denied."); return; }
+            setUserState($user_id, [
+                'status' => STATE_ADMIN_ADDING_CATEGORY_KEY,
+                'original_message_id' => $message_id
+            ]);
+            $prompt_text = "Please send the unique key for the new category.\n\n";
+            $prompt_text .= "Guidelines:\n";
+            $prompt_text .= "- Use lowercase letters, numbers, and underscores only (e.g., `spotify_accounts`, `vpn_region_1`).\n";
+            $prompt_text .= "- This key is used internally and in callback data, so make it descriptive but not too long.\n";
+            $prompt_text .= "- It must be unique.\n\n";
+            $prompt_text .= "Type /cancel to go back to Category Management.";
+
+            $cancel_keyboard_cat_mgt = json_encode(['inline_keyboard' => [
+                [['text' => '« Cancel Adding Category', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]
+            ]]);
+            editMessageText($chat_id, $message_id, $prompt_text, $cancel_keyboard_cat_mgt);
+        }
+        elseif ($data === CALLBACK_ADMIN_CAT_EDIT_SELECT_OLD_KEY) { // Step 4.2: Select Category to Edit
+            if (!$is_admin) { sendMessage($chat_id, "Access denied."); return; }
+            global $products;
+            if (empty($products)) {
+                editMessageText($chat_id, $message_id, "No categories found to edit.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]]]));
+                return;
+            }
+            $keyboard_rows = [];
+            foreach (array_keys($products) as $category_key_loop) {
+                $display_name = ucfirst(str_replace('_', ' ', $category_key_loop));
+                $keyboard_rows[] = [['text' => $display_name, 'callback_data' => CALLBACK_ADMIN_CAT_EDIT_PROMPT_NEW_KEY_PREFIX . $category_key_loop]];
+            }
+            $keyboard_rows[] = [['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]];
+            editMessageText($chat_id, $message_id, "Select a category to rename:", json_encode(['inline_keyboard' => $keyboard_rows]));
+        }
+        elseif (strpos($data, CALLBACK_ADMIN_CAT_EDIT_PROMPT_NEW_KEY_PREFIX) === 0) { // Step 4.3: Prompt for New Key
+            if (!$is_admin) { sendMessage($chat_id, "Access denied."); return; }
+            $old_category_key = substr($data, strlen(CALLBACK_ADMIN_CAT_EDIT_PROMPT_NEW_KEY_PREFIX));
+
+            // Ensure the old category key actually exists
+            global $products;
+            if (!isset($products[$old_category_key])) {
+                error_log("Attempted to edit non-existent category key: {$old_category_key}");
+                editMessageText($chat_id, $message_id, "Error: The category '{$old_category_key}' no longer exists or was invalid.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_CAT_EDIT_SELECT_OLD_KEY]]]]));
+                return;
+            }
+
+            setUserState($user_id, [
+                'status' => STATE_ADMIN_EDITING_CATEGORY_KEY,
+                'old_category_key' => $old_category_key,
+                'original_message_id' => $message_id
+            ]);
+            $prompt_text = "You are renaming the category: `".htmlspecialchars($old_category_key)."`.\n\n";
+            $prompt_text .= "Please send the new unique key for this category.\n";
+            $prompt_text .= "Guidelines are the same as for adding a new category (lowercase, numbers, underscores).\n\n";
+            $prompt_text .= "Type /cancel to go back to Category Management without renaming.";
+
+            $cancel_keyboard_cat_mgt_edit = json_encode(['inline_keyboard' => [
+                [['text' => '« Cancel Rename', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]
+            ]]);
+            editMessageText($chat_id, $message_id, $prompt_text, $cancel_keyboard_cat_mgt_edit, 'Markdown');
+        }
+        // --- REMOVE CATEGORY FLOW ---
+        elseif ($data === CALLBACK_ADMIN_CAT_REMOVE_SELECT_KEY) { // Step 5.2: Select Category to Remove
+            if (!$is_admin) { sendMessage($chat_id, "Access denied."); return; }
+            global $products;
+            if (empty($products)) {
+                editMessageText($chat_id, $message_id, "No categories found to remove.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]]]));
+                return;
+            }
+            $keyboard_rows = [];
+            foreach (array_keys($products) as $category_key_loop) {
+                $display_name = ucfirst(str_replace('_', ' ', $category_key_loop));
+                 // Append product count to display name
+                $product_count = isset($products[$category_key_loop]) ? count($products[$category_key_loop]) : 0;
+                $keyboard_rows[] = [['text' => "➖ " . $display_name . " ({$product_count} products)", 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_CONFIRM_PREFIX . $category_key_loop]];
+            }
+            $keyboard_rows[] = [['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]];
+            editMessageText($chat_id, $message_id, "Select a category to remove (⚠️ this may also remove products):", json_encode(['inline_keyboard' => $keyboard_rows]));
+        }
+        elseif (strpos($data, CALLBACK_ADMIN_CAT_REMOVE_CONFIRM_PREFIX) === 0) { // Step 5.3: Confirmation Step
+            if (!$is_admin) { sendMessage($chat_id, "Access denied."); return; }
+            $category_key_to_remove = substr($data, strlen(CALLBACK_ADMIN_CAT_REMOVE_CONFIRM_PREFIX));
+
+            global $products;
+            if (!isset($products[$category_key_to_remove])) {
+                error_log("Attempted to remove non-existent category key: {$category_key_to_remove}");
+                editMessageText($chat_id, $message_id, "Error: The category '{$category_key_to_remove}' no longer exists or was invalid.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_SELECT_KEY]]]]));
+                return;
+            }
+
+            $product_count = count($products[$category_key_to_remove]);
+            $confirm_text = "You are about to remove the category: `".htmlspecialchars($category_key_to_remove)."`.\n\n";
+            $keyboard_buttons = [];
+
+            if ($product_count === 0) {
+                $confirm_text .= "This category is currently empty.";
+                $keyboard_buttons[] = [['text' => "✅ Yes, Remove Empty Category", 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_DO_EMPTY_PREFIX . $category_key_to_remove]];
+            } else {
+                $confirm_text .= "⚠️ **WARNING:** This category contains {$product_count} product(s).\n";
+                $confirm_text .= "Removing this category will also **PERMANENTLY DELETE ALL PRODUCTS** within it.\n\n";
+                $confirm_text .= "Are you absolutely sure you want to proceed?";
+                $keyboard_buttons[] = [['text' => "🔥 YES, Delete Category & {$product_count} Product(s)", 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_DO_WITHPRODS_PREFIX . $category_key_to_remove]];
+            }
+            $keyboard_buttons[] = [['text' => "❌ No, Cancel", 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_SELECT_KEY]]; // Go back to selection
+            $keyboard_buttons[] = [['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]];
+
+            editMessageText($chat_id, $message_id, $confirm_text, json_encode(['inline_keyboard' => $keyboard_buttons]), 'Markdown');
+        }
+        elseif (strpos($data, CALLBACK_ADMIN_CAT_REMOVE_DO_EMPTY_PREFIX) === 0 || strpos($data, CALLBACK_ADMIN_CAT_REMOVE_DO_WITHPRODS_PREFIX) === 0) { // Step 5.4: Perform Deletion
+            if (!$is_admin) { sendMessage($chat_id, "Access denied."); return; }
+
+            $is_deleting_with_products = strpos($data, CALLBACK_ADMIN_CAT_REMOVE_DO_WITHPRODS_PREFIX) === 0;
+            $prefix_to_strip = $is_deleting_with_products ? CALLBACK_ADMIN_CAT_REMOVE_DO_WITHPRODS_PREFIX : CALLBACK_ADMIN_CAT_REMOVE_DO_EMPTY_PREFIX;
+            $category_key_to_delete = substr($data, strlen($prefix_to_strip));
+
+            global $products;
+            if (!isset($products[$category_key_to_delete])) {
+                error_log("Attempted to perform delete on non-existent category key: {$category_key_to_delete}");
+                editMessageText($chat_id, $message_id, "Error: The category '{$category_key_to_delete}' could not be found for deletion.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_SELECT_KEY]]]]));
+                return;
+            }
+
+            $removed_category_name_display = htmlspecialchars($category_key_to_delete);
+            unset($products[$category_key_to_delete]);
+
+            if (writeJsonFile(PRODUCTS_FILE, $products)) {
+                $success_message = "✅ Category '{$removed_category_name_display}' " . ($is_deleting_with_products ? "and all its products " : "") . "removed successfully.";
+                 // Show Category Management menu again
+                $cat_mgt_keyboard_return = [
+                    'inline_keyboard' => [
+                        [['text' => "➕ Add New Category", 'callback_data' => CALLBACK_ADMIN_CAT_ADD_PROMPT]],
+                        [['text' => "✏️ Edit Category Name", 'callback_data' => CALLBACK_ADMIN_CAT_EDIT_SELECT_OLD_KEY]],
+                        [['text' => "➖ Remove Category", 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_SELECT_KEY]],
+                        [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                    ]
+                ];
+                editMessageText($chat_id, $message_id, $success_message . "\n\n🗂️ Category Management 🗂️", json_encode($cat_mgt_keyboard_return));
+            } else {
+                // Attempt to revert in-memory change (might be complex if products were also "removed" in memory)
+                // For simplicity, just log and inform. A robust revert would reload $products from file.
+                error_log("Failed to save products.json after attempting to remove category: {$category_key_to_delete}");
+                editMessageText($chat_id, $message_id, "⚠️ Failed to save changes after removing category '{$removed_category_name_display}'. Please check server logs/permissions. The category may still exist.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_CAT_REMOVE_SELECT_KEY]]]]));
+            }
+        }
+        elseif ($data === CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY) {
+            global $products;
+                'status' => STATE_ADMIN_ADDING_CATEGORY_KEY,
+                'original_message_id' => $message_id
+            ]);
+            $prompt_text = "Please send the unique key for the new category.\n\n";
+            $prompt_text .= "Guidelines:\n";
+            $prompt_text .= "- Use lowercase letters, numbers, and underscores only (e.g., `spotify_accounts`, `vpn_region_1`).\n";
+            $prompt_text .= "- This key is used internally and in callback data, so make it descriptive but not too long.\n";
+            $prompt_text .= "- It must be unique.\n\n";
+            $prompt_text .= "Type /cancel to go back to Category Management.";
+
+            // Create a keyboard with just a cancel button that goes back to category management
+            $cancel_keyboard_cat_mgt = json_encode(['inline_keyboard' => [
+                [['text' => '« Cancel Adding Category', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]
+            ]]);
+            editMessageText($chat_id, $message_id, $prompt_text, $cancel_keyboard_cat_mgt);
         }
         elseif ($data === CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY) {
             global $products;

@@ -20,6 +20,8 @@ define('STATE_ADMIN_EDITING_PROD_FIELD', 'admin_editing_prod_field');
 define('STATE_ADMIN_ADDING_SINGLE_INSTANT_ITEM', 'admin_adding_single_instant_item');
 define('STATE_AWAITING_SUPPORT_MESSAGE', 'awaiting_support_message');
 define('STATE_AWAITING_RECEIPT', 'awaiting_receipt');
+define('STATE_ADMIN_ADDING_CATEGORY_KEY', 'admin_adding_category_key');
+define('STATE_ADMIN_EDITING_CATEGORY_KEY', 'admin_editing_category_key'); // New state for editing category key
 // Note: 'admin_adding_prod_info_prompt' was a transient state name used before setting 'admin_adding_prod_info', so not making it a global constant.
 
 // --- Callback Data Prefixes/Actions ---
@@ -64,6 +66,16 @@ define('CALLBACK_ADMIN_RP_CONF_NO_PREFIX', 'admin_rp_conf_no_');
 // Admin Stats
 define('CALLBACK_ADMIN_VIEW_STATS', 'admin_view_stats');
 
+// Admin Category Management (New)
+define('CALLBACK_ADMIN_CATEGORY_MANAGEMENT', 'admin_category_management');
+define('CALLBACK_ADMIN_CAT_ADD_PROMPT', 'admin_cat_add_prompt');
+define('CALLBACK_ADMIN_CAT_EDIT_SELECT_OLD_KEY', 'admin_cat_edit_select_old_key');
+define('CALLBACK_ADMIN_CAT_EDIT_PROMPT_NEW_KEY_PREFIX', 'admin_cat_edit_prompt_new_key_');
+define('CALLBACK_ADMIN_CAT_REMOVE_SELECT_KEY', 'admin_cat_remove_select_key');
+define('CALLBACK_ADMIN_CAT_REMOVE_CONFIRM_PREFIX', 'admin_cat_remove_confirm_'); // For selecting a category and showing confirmation
+define('CALLBACK_ADMIN_CAT_REMOVE_DO_EMPTY_PREFIX', 'admin_cat_remove_do_empty_'); // For final deletion of empty category
+define('CALLBACK_ADMIN_CAT_REMOVE_DO_WITHPRODS_PREFIX', 'admin_cat_remove_do_withprods_'); // For final deletion of category with products
+
 // Payment Callbacks
 define('CALLBACK_ACCEPT_PAYMENT_PREFIX', 'accept_payment_');
 define('CALLBACK_REJECT_PAYMENT_PREFIX', 'reject_payment_');
@@ -72,12 +84,7 @@ define('CALLBACK_REJECT_PAYMENT_PREFIX', 'reject_payment_');
 define('CALLBACK_BUY_SPOTIFY', 'buy_spotify');
 define('CALLBACK_BUY_SSH', 'buy_ssh');
 define('CALLBACK_BUY_V2RAY', 'buy_v2ray');
-// For product selection within a category like "spotify_plan_PRODUCTID"
-// These are more like patterns than fixed prefixes for single actions.
-// Example: 'spotify_plan_', 'ssh_plan_', 'v2ray_plan_' are category keys used in product selection.
-// The callback then becomes CATEGORYKEY_PRODUCTID.
-// So, not defining specific constants for "spotify_plan_PRODUCTID" but acknowledging the pattern.
-define('CALLBACK_CONFIRM_BUY_PREFIX', 'confirm_buy_'); // confirm_buy_CATEGORY_PRODUCTID
+define('CALLBACK_CONFIRM_BUY_PREFIX', 'confirm_buy_');
 
 
 // --- Main Menu Keyboard ---
