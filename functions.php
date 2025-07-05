@@ -794,66 +794,44 @@ function processCallbackQuery($callback_query) {
         // ... (This block was removed as it's handled by dynamic view_category_)
     }
     */
-    // The `else` block below is the temporary debug wrapper for the product selection regex.
-    // It will catch any callback that is not 'view_category_', not an admin action, and not one of the other specific general callbacks.
-    // This is where product selection callbacks like 'categorykey_productid' should land.
-    // After debugging, this should be converted back to `elseif` with the combined condition.
-    else {
-        // error_log("PROD_SEL_DEBUG: PRE-CHECK for data: '" . $data . "'");
-        $matches_prod_select = [];
-        $cond_pregmatch = preg_match('/^(.*)_([^_]+)$/', $data, $matches_prod_select);
-        // error_log("PROD_SEL_DEBUG: preg_match result: " . (int)$cond_pregmatch . ", Matches: " . print_r($matches_prod_select, true));
+    // This is the general product selection handler
+    elseif (
+        preg_match('/^(.*)_([^_]+)$/', $data, $matches_prod_select) &&
+        (strpos($data, 'view_category_') !== 0) &&
+        (strpos($data, 'admin_') !== 0) && // Ensure it's not an admin callback caught here by mistake
+        ($data !== CALLBACK_BACK_TO_MAIN) &&
+        ($data !== CALLBACK_MY_PRODUCTS) &&
+        ($data !== CALLBACK_SUPPORT) &&
+        (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) !== 0) &&
+        (strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) !== 0) &&
+        (strpos($data, CALLBACK_REJECT_PAYMENT_PREFIX) !== 0)
+    ) {
+        error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
+        global $products; $products = readJsonFile(PRODUCTS_FILE);
 
-        $cond_not_view_cat = (strpos($data, 'view_category_') !== 0);
-        $cond_not_admin_prefix = (strpos($data, 'admin_') !== 0);
-        $cond_not_back = ($data !== CALLBACK_BACK_TO_MAIN);
-        $cond_not_my_prod = ($data !== CALLBACK_MY_PRODUCTS);
-        $cond_not_support = ($data !== CALLBACK_SUPPORT);
-        $cond_not_confirm_buy = (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) !== 0);
-        $cond_not_accept_payment = (strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) !== 0);
-        $cond_not_reject_payment = (strpos($data, CALLBACK_REJECT_PAYMENT_PREFIX) !== 0);
+        $category_key_select = $matches_prod_select[1];
+        $product_id_select = $matches_prod_select[2];
 
-        if ($cond_pregmatch) {
-            // error_log("PROD_SEL_DEBUG: Conditions eval for (data: '".$data."'): not_view_cat=".(int)$cond_not_view_cat.", not_admin_prefix=".(int)$cond_not_admin_prefix.", not_back=".(int)$cond_not_back.", not_my_prod=".(int)$cond_not_my_prod.", not_support=".(int)$cond_not_support.", not_confirm_buy=".(int)$cond_not_confirm_buy.", not_accept_payment=".(int)$cond_not_accept_payment.", not_reject_payment=".(int)$cond_not_reject_payment);
-        }
-
-        if ($cond_pregmatch && $cond_not_view_cat && $cond_not_admin_prefix &&
-            $cond_not_back && $cond_not_my_prod && $cond_not_support &&
-            $cond_not_confirm_buy && $cond_not_accept_payment && $cond_not_reject_payment) {
-            error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
-
-            $category_key_select = $matches_prod_select[1];
-            $product_id_select = $matches_prod_select[2];
-
-            if (isset($products[$category_key_select][$product_id_select])) {
-                $product_selected = $products[$category_key_select][$product_id_select];
-                $plan_info_text = "<b>Product:</b> " . htmlspecialchars($product_selected['name']) . "\n";
-                $plan_info_text .= "<b>Price:</b> $" . htmlspecialchars($product_selected['price']) . "\n";
-                $plan_info_text .= "<b>Info:</b> " . nl2br(htmlspecialchars($product_selected['info'] ?? 'N/A')) . "\n\n";
-                $plan_info_text .= "Do you want to purchase this item?";
-                $back_cb_data = 'view_category_' . $category_key_select;
-                $kb_prod_select = json_encode(['inline_keyboard' => [
-                    [['text' => "✅ Yes, Buy This", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . "{$category_key_select}_{$product_id_select}"]],
-                    [['text' => "« Back to Plans", 'callback_data' => $back_cb_data ]]
-                ]]);
-                editMessageText($chat_id, $message_id, $plan_info_text, $kb_prod_select, 'HTML');
-            } else {
-                 error_log("PROD_SEL_DEBUG: Product '{$category_key_select}_{$product_id_select}' not found in loaded products. Data: ".$data);
-                 $kb_notfound_prod = json_encode(['inline_keyboard' => [[['text' => '« Back to Categories', 'callback_data' => 'view_category_' . $category_key_select ]], [['text' => '« Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN ]]]]);
-                 editMessageText($chat_id, $message_id, "Sorry, the selected product could not be found. It might have been recently updated or removed.", $kb_notfound_prod);
-            }
-            return;
+        if (isset($products[$category_key_select][$product_id_select])) {
+            $product_selected = $products[$category_key_select][$product_id_select];
+            $plan_info_text = "<b>Product:</b> " . htmlspecialchars($product_selected['name']) . "\n";
+            $plan_info_text .= "<b>Price:</b> $" . htmlspecialchars($product_selected['price']) . "\n";
+            $plan_info_text .= "<b>Info:</b> " . nl2br(htmlspecialchars($product_selected['info'] ?? 'N/A')) . "\n\n";
+            $plan_info_text .= "Do you want to purchase this item?";
+            $back_cb_data = 'view_category_' . $category_key_select;
+            $kb_prod_select = json_encode(['inline_keyboard' => [
+                [['text' => "✅ Yes, Buy This", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . "{$category_key_select}_{$product_id_select}"]],
+                [['text' => "« Back to Plans", 'callback_data' => $back_cb_data ]]
+            ]]);
+            editMessageText($chat_id, $message_id, $plan_info_text, $kb_prod_select, 'HTML');
         } else {
-             if ($cond_pregmatch) {
-                // error_log("PROD_SEL_DEBUG: Product selection conditions NOT met for data: '" . $data . "'. Falling through.");
-             }
+             error_log("PROD_SEL_DEBUG: Product '{$category_key_select}_{$product_id_select}' not found in loaded products. Data: ".$data);
+             $kb_notfound_prod = json_encode(['inline_keyboard' => [[['text' => '« Back to Categories', 'callback_data' => 'view_category_' . $category_key_select ]], [['text' => '« Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN ]]]]);
+             editMessageText($chat_id, $message_id, "Sorry, the selected product could not be found. It might have been recently updated or removed.", $kb_notfound_prod);
         }
+        return;
     }
 
-    // This must be elseif if the above temporary else block is reverted
-    // For now, to ensure fall-through if the above `else` doesn't return:
-    // Reverting to elseif as the product selection block above now has a return on success.
     elseif (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) === 0) {
         $ids_str_confirm_buy = substr($data, strlen(CALLBACK_CONFIRM_BUY_PREFIX));
         if (!preg_match('/^(.+)_([^_]+)$/', $ids_str_confirm_buy, $matches_ids_confirm_buy)) {
