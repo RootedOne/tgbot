@@ -19,7 +19,7 @@ function writeJsonFile($filename, $data) {
         error_log("writeJsonFile: json_encode error for {$filename}: " . json_last_error_msg());
         return false;
     }
-
+    
     if (file_put_contents($filename, $json_data) === false) {
         error_log("writeJsonFile: file_put_contents error for {$filename}. Check permissions, path, or disk space.");
         return false;
@@ -50,35 +50,35 @@ function addUserBalance($user_id, $amount) { if (!is_numeric($amount) || $amount
 // --- User Purchase and Product Functions ---
 function recordPurchase($user_id, $product_name, $price) { $purchases = readJsonFile(USER_PURCHASES_FILE); $new_purchase = ['product_name' => $product_name, 'price' => $price, 'date' => date('Y-m-d H:i:s')]; if (!isset($purchases[$user_id])) { $purchases[$user_id] = []; } $purchases[$user_id][] = $new_purchase; if(!writeJsonFile(USER_PURCHASES_FILE, $purchases)){error_log("Failed to record purchase for user {$user_id}");} }
 function getProductDetails($category_key, $product_id) { global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } return $products[$category_key][$product_id] ?? null; }
-function updateProductDetails($category_key, $product_id, $details) {
-    global $products;
-    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
-    if (isset($products[$category_key][$product_id])) {
-        $products[$category_key][$product_id] = $details;
+function updateProductDetails($category_key, $product_id, $details) { 
+    global $products; 
+    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } 
+    if (isset($products[$category_key][$product_id])) { 
+        $products[$category_key][$product_id] = $details; 
         return writeJsonFile(PRODUCTS_FILE, $products); // Return status of write
-    }
-    return false;
+    } 
+    return false; 
 }
-function addInstantProductItem($category_key, $product_id, $item_content) {
-    global $products;
-    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
-    if (isset($products[$category_key][$product_id]) && ($products[$category_key][$product_id]['type'] ?? 'manual') === 'instant') {
-        if (!isset($products[$category_key][$product_id]['items']) || !is_array($products[$category_key][$product_id]['items'])) {
-            $products[$category_key][$product_id]['items'] = [];
-        }
-        $products[$category_key][$product_id]['items'][] = $item_content;
+function addInstantProductItem($category_key, $product_id, $item_content) { 
+    global $products; 
+    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } 
+    if (isset($products[$category_key][$product_id]) && ($products[$category_key][$product_id]['type'] ?? 'manual') === 'instant') { 
+        if (!isset($products[$category_key][$product_id]['items']) || !is_array($products[$category_key][$product_id]['items'])) { 
+            $products[$category_key][$product_id]['items'] = []; 
+        } 
+        $products[$category_key][$product_id]['items'][] = $item_content; 
         return writeJsonFile(PRODUCTS_FILE, $products); // Return status of write
-    }
-    return false;
+    } 
+    return false; 
 }
-function getAndRemoveInstantProductItem($category_key, $product_id) {
-    global $products;
-    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
-    if (isset($products[$category_key][$product_id]) &&
-        ($products[$category_key][$product_id]['type'] ?? 'manual') === 'instant' &&
-        !empty($products[$category_key][$product_id]['items']) &&
-        is_array($products[$category_key][$product_id]['items'])) {
-        $item = array_shift($products[$category_key][$product_id]['items']);
+function getAndRemoveInstantProductItem($category_key, $product_id) { 
+    global $products; 
+    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } 
+    if (isset($products[$category_key][$product_id]) && 
+        ($products[$category_key][$product_id]['type'] ?? 'manual') === 'instant' && 
+        !empty($products[$category_key][$product_id]['items']) && 
+        is_array($products[$category_key][$product_id]['items'])) { 
+        $item = array_shift($products[$category_key][$product_id]['items']); 
         if (writeJsonFile(PRODUCTS_FILE, $products)) {
             return $item;
         } else {
@@ -86,20 +86,20 @@ function getAndRemoveInstantProductItem($category_key, $product_id) {
             // Optionally, re-add item to memory to reflect failed save: $products[$category_key][$product_id]['items'][] = $item; sort items if order matters.
             return null; // Indicate failure or that item wasn't truly "removed" from persistent storage
         }
-    }
-    return null;
+    } 
+    return null; 
 }
 
-function promptForProductType($chat_id, $admin_user_id, $category_key, $product_name_context) {
+function promptForProductType($chat_id, $admin_user_id, $category_key, $product_name_context) { 
     $type_keyboard = ['inline_keyboard' => [
         [['text' => '📦 Instant Delivery', 'callback_data' => CALLBACK_ADMIN_SET_PROD_TYPE_INSTANT]],
         [['text' => '👤 Manual Delivery', 'callback_data' => CALLBACK_ADMIN_SET_PROD_TYPE_MANUAL]],
         [['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]
-    ]];
+    ]]; 
     sendMessage($chat_id, "Product: '{$product_name_context}'.\nSelect delivery type:", json_encode($type_keyboard));
 }
 
-$products = readJsonFile(PRODUCTS_FILE);
+$products = readJsonFile(PRODUCTS_FILE); 
 
 // --- BOT STATS FUNCTION ---
 function generateBotStatsText() {
@@ -127,8 +127,8 @@ function generateBotStatsText() {
     $user_data_all = readJsonFile(USER_DATA_FILE);
     $total_users = 0; $banned_users_count = 0;
     if (!empty($user_data_all) && is_array($user_data_all)) {
-        $total_users = count($user_data_all);
-        foreach ($user_data_all as $data) {
+        $total_users = count($user_data_all); 
+        foreach ($user_data_all as $data) { 
             if (isset($data['is_banned']) && $data['is_banned'] === true) { $banned_users_count++; }
         }
     }
@@ -140,7 +140,7 @@ function generateBotStatsText() {
     $user_purchases_all = readJsonFile(USER_PURCHASES_FILE);
     $total_purchases_count = 0; $total_sales_volume = 0.0; $manual_additions_count = 0;
     if (!empty($user_purchases_all) && is_array($user_purchases_all)) {
-        foreach ($user_purchases_all as $purchases) {
+        foreach ($user_purchases_all as $purchases) { 
             if (is_array($purchases)) {
                 $total_purchases_count += count($purchases);
                 foreach ($purchases as $purchase) {
@@ -169,32 +169,32 @@ function editMessageText($chat_id, $message_id, $text, $reply_markup = null, $pa
 function editMessageCaption($chat_id, $message_id, $caption, $reply_markup = null, $parse_mode = 'HTML') { bot('editMessageCaption', ['chat_id' => $chat_id, 'message_id' => $message_id, 'caption' => $caption, 'reply_markup' => $reply_markup, 'parse_mode' => $parse_mode]); }
 function editMessageReplyMarkup($chat_id, $message_id, $reply_markup = null) { bot('editMessageReplyMarkup', ['chat_id' => $chat_id, 'message_id' => $message_id, 'reply_markup' => $reply_markup]); }
 function answerCallbackQuery($callback_query_id) { bot('answerCallbackQuery', ['callback_query_id' => $callback_query_id]); }
-function forwardPhotoToAdmin($file_id, $caption, $original_user_id) {
-    $admin_ids = getAdminIds();
-    if(empty($admin_ids)) return;
-    $admin_id = $admin_ids[0];
+function forwardPhotoToAdmin($file_id, $caption, $original_user_id) { 
+    $admin_ids = getAdminIds(); 
+    if(empty($admin_ids)) return; 
+    $admin_id = $admin_ids[0]; 
     $approval_keyboard = json_encode(['inline_keyboard' => [
-        [['text' => "✅ Accept", 'callback_data' => CALLBACK_ACCEPT_PAYMENT_PREFIX . $original_user_id],
+        [['text' => "✅ Accept", 'callback_data' => CALLBACK_ACCEPT_PAYMENT_PREFIX . $original_user_id], 
          ['text' => "❌ Reject", 'callback_data' => CALLBACK_REJECT_PAYMENT_PREFIX . $original_user_id]]
-    ]]);
-    bot('sendPhoto', ['chat_id' => $admin_id, 'photo' => $file_id, 'caption' => $caption, 'parse_mode' => 'Markdown', 'reply_markup' => $approval_keyboard]);
+    ]]); 
+    bot('sendPhoto', ['chat_id' => $admin_id, 'photo' => $file_id, 'caption' => $caption, 'parse_mode' => 'Markdown', 'reply_markup' => $approval_keyboard]); 
 }
-function generateCategoryKeyboard($category_key) {
-    global $products;
-    $keyboard = ['inline_keyboard' => []];
-    $category_products = $products[$category_key] ?? [];
-    foreach ($category_products as $id => $details) {
-        $keyboard['inline_keyboard'][] = [['text' => "{$details['name']} - \${$details['price']}", 'callback_data' => "{$category_key}_{$id}"]];
-    }
-    $keyboard['inline_keyboard'][] = [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]];
-    return json_encode($keyboard);
+function generateCategoryKeyboard($category_key) { 
+    global $products; 
+    $keyboard = ['inline_keyboard' => []]; 
+    $category_products = $products[$category_key] ?? []; 
+    foreach ($category_products as $id => $details) { 
+        $keyboard['inline_keyboard'][] = [['text' => "{$details['name']} - \${$details['price']}", 'callback_data' => "{$category_key}_{$id}"]]; 
+    } 
+    $keyboard['inline_keyboard'][] = [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]; 
+    return json_encode($keyboard); 
 }
 
 // ===================================================================
 //  CALLBACK QUERY PROCESSOR
 // ===================================================================
 function processCallbackQuery($callback_query) {
-    global $mainMenuKeyboard, $adminMenuKeyboard, $products;
+    global $mainMenuKeyboard, $adminMenuKeyboard, $products; 
     $chat_id = $callback_query->message->chat->id;
     $user_id = $callback_query->from->id;
     $data = $callback_query->data; // Defined once here
@@ -217,15 +217,15 @@ function processCallbackQuery($callback_query) {
     if ($data === CALLBACK_MY_PRODUCTS) {
         $purchases = readJsonFile(USER_PURCHASES_FILE);
         $user_purchases = $purchases[$user_id] ?? [];
-        if (empty($user_purchases)) { $text = "You have no products yet."; }
+        if (empty($user_purchases)) { $text = "You have no products yet."; } 
         else {
             $text = "<b>🛍️ Your Products:</b>\n\n";
             foreach ($user_purchases as $purchase) {
                 $product_name = htmlspecialchars($purchase['product_name']);
-                $price_text = htmlspecialchars($purchase['price']);
-                $date = $purchase['date'];
+                $price_text = htmlspecialchars($purchase['price']); 
+                $date = $purchase['date']; 
                 $text .= "<b>Product:</b> {$product_name}\n";
-                if (is_numeric($purchase['price'])) { $text .= "<b>Price:</b> \${$price_text}\n"; }
+                if (is_numeric($purchase['price'])) { $text .= "<b>Price:</b> \${$price_text}\n"; } 
                 else { $text .= "<b>Note:</b> {$price_text}\n"; }
                 $text .= "<b>Date:</b> {$date}\n\n";
             }
@@ -233,14 +233,14 @@ function processCallbackQuery($callback_query) {
         $keyboard = json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]);
         editMessageText($chat_id, $message_id, $text, $keyboard, 'HTML');
     }
-    elseif ($data === CALLBACK_SUPPORT) {
+    elseif ($data === CALLBACK_SUPPORT) { 
         setUserState($user_id, ['status' => STATE_AWAITING_SUPPORT_MESSAGE, 'message_id' => $message_id]);
         $support_text = "❓Please describe your issue or question below.\nYour message will be forwarded to the admin team.\n\nType /cancel to abort sending a message.";
-        $cancel_keyboard = json_encode(['inline_keyboard' => [[['text' => 'Cancel Support Request', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]);
+        $cancel_keyboard = json_encode(['inline_keyboard' => [[['text' => 'Cancel Support Request', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]); 
         editMessageText($chat_id, $message_id, $support_text, $cancel_keyboard);
     }
     elseif ($data === CALLBACK_SUPPORT_CONFIRM) { /* Unused */ }
-
+    
     elseif (strpos($data, 'admin_') === 0 || $data === CALLBACK_ADMIN_PANEL || $data === CALLBACK_ADMIN_PROD_MANAGEMENT || $data === CALLBACK_ADMIN_VIEW_STATS ) {
         if (!$is_admin) {  sendMessage($chat_id, "Access denied."); return; }
 
@@ -253,7 +253,7 @@ function processCallbackQuery($callback_query) {
                 ]
             ];
             editMessageText($chat_id, $message_id, "⚙️ Admin Panel ⚙️", json_encode($admin_panel_keyboard_def));
-            return;
+            return; 
         }
         elseif ($data === CALLBACK_ADMIN_VIEW_STATS) {
             $stats_content = generateBotStatsText();
@@ -261,7 +261,7 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, $stats_content, $keyboard_back, 'HTML');
             return;
         }
-        elseif ($data === CALLBACK_ADMIN_PROD_MANAGEMENT) {
+        elseif ($data === CALLBACK_ADMIN_PROD_MANAGEMENT) { 
             $prod_mgt_keyboard = [
                 'inline_keyboard' => [
                     [['text' => "➕ Add Product", 'callback_data' => CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY]],
@@ -272,12 +272,12 @@ function processCallbackQuery($callback_query) {
             ];
             editMessageText($chat_id, $message_id, "📦 Product Management 📦", json_encode($prod_mgt_keyboard));
         }
-        elseif ($data === CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY) {
-            global $products;
-            $category_keys = array_keys($products);
+        elseif ($data === CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY) { 
+            global $products; 
+            $category_keys = array_keys($products); 
             $keyboard_rows = [];
-            if(empty($category_keys)) {
-                 setUserState($user_id, ['status' => STATE_ADMIN_ADDING_PROD_NAME, 'category_key' => 'default']);
+            if(empty($category_keys)) { 
+                 setUserState($user_id, ['status' => STATE_ADMIN_ADDING_PROD_NAME, 'category_key' => 'default']); 
                  editMessageText($chat_id, $message_id, "No categories exist yet. Adding to 'default' category.\nEnter the product name:", null); return;
             }
             foreach ($category_keys as $cat_key) {
@@ -286,12 +286,12 @@ function processCallbackQuery($callback_query) {
             $keyboard_rows[] = [['text' => '« Back to Product Mgt', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]];
             editMessageText($chat_id, $message_id, "Select a category to add the new product to:", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
-        elseif (strpos($data, CALLBACK_ADMIN_AP_CAT_PREFIX) === 0) {
+        elseif (strpos($data, CALLBACK_ADMIN_AP_CAT_PREFIX) === 0) { 
             $category_key = substr($data, strlen(CALLBACK_ADMIN_AP_CAT_PREFIX));
             setUserState($user_id, ['status' => STATE_ADMIN_ADDING_PROD_NAME, 'category_key' => $category_key, 'original_message_id' => $message_id]);
             editMessageText($chat_id, $message_id, "Adding to category: '".htmlspecialchars($category_key)."'.\nEnter the product name:", null);
         }
-        elseif ($data === CALLBACK_ADMIN_SET_PROD_TYPE_INSTANT || $data === CALLBACK_ADMIN_SET_PROD_TYPE_MANUAL) {
+        elseif ($data === CALLBACK_ADMIN_SET_PROD_TYPE_INSTANT || $data === CALLBACK_ADMIN_SET_PROD_TYPE_MANUAL) { 
             $user_state = getUserState($user_id);
             if(!$user_state || $user_state['status'] !== STATE_ADMIN_ADDING_PROD_TYPE_PROMPT) { return; }
             $user_state['new_product_type'] = ($data === CALLBACK_ADMIN_SET_PROD_TYPE_INSTANT) ? 'instant' : 'manual';
@@ -299,7 +299,7 @@ function processCallbackQuery($callback_query) {
             setUserState($user_id, $user_state);
             editMessageText($chat_id, $message_id, "Type set to: {$user_state['new_product_type']}.\nEnter the price for '{$user_state['new_product_name']}': (numbers only)", null);
         }
-
+        
         elseif ($data === CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY) {
             global $products;
             if (empty($products)) { editMessageText($chat_id, $message_id, "No categories found.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]])); return; }
@@ -308,7 +308,7 @@ function processCallbackQuery($callback_query) {
             $keyboard_rows[] = [['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]];
             editMessageText($chat_id, $message_id, "Select category to edit products from:", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
-        elseif (strpos($data, CALLBACK_ADMIN_EP_SCAT_PREFIX) === 0) {
+        elseif (strpos($data, CALLBACK_ADMIN_EP_SCAT_PREFIX) === 0) { 
             $category_key = substr($data, strlen(CALLBACK_ADMIN_EP_SCAT_PREFIX));
             global $products;
             if (!isset($products[$category_key]) || empty($products[$category_key])) { editMessageText($chat_id, $message_id, "No products in " . htmlspecialchars($category_key), json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY]]]])); return; }
@@ -317,14 +317,14 @@ function processCallbackQuery($callback_query) {
             $keyboard_rows[] = [['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Select product to edit in " . htmlspecialchars($category_key) . ":", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
-        elseif (strpos($data, CALLBACK_ADMIN_EP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_EP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
+        elseif (strpos($data, CALLBACK_ADMIN_EP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_EP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) { 
             $category_key = $matches[1]; $product_id = $matches[2];
             $p = getProductDetails($category_key, $product_id);
-            if (!$p) {
+            if (!$p) { 
                 error_log("EP_SPRO: Product not found. Data: {$data}, Category: {$category_key}, ProductID: {$product_id}");
                 $error_kb = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $category_key]]]]);
                 editMessageText($chat_id, $message_id, "Error: Product '{$product_id}' in category '{$category_key}' not found. It might have been removed or the ID is incorrect.", $error_kb);
-                return;
+                return; 
             }
             $kb = [
                 [['text' => "✏️ Name", 'callback_data' => CALLBACK_ADMIN_EDIT_NAME_PREFIX . "{$category_key}_{$product_id}"]],
@@ -337,19 +337,19 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, "Editing: <b>".htmlspecialchars($p['name'])."</b>", json_encode(['inline_keyboard' => $kb]), 'HTML');
         }
         elseif (strpos($data, CALLBACK_ADMIN_EDIT_NAME_PREFIX) === 0 || strpos($data, CALLBACK_ADMIN_EDIT_PRICE_PREFIX) === 0 || strpos($data, CALLBACK_ADMIN_EDIT_INFO_PREFIX) === 0) {
-            $field_to_edit = '';
+            $field_to_edit = ''; 
             if(strpos($data, CALLBACK_ADMIN_EDIT_NAME_PREFIX) === 0) { $field_to_edit = 'name'; $prefix = CALLBACK_ADMIN_EDIT_NAME_PREFIX; }
             elseif(strpos($data, CALLBACK_ADMIN_EDIT_PRICE_PREFIX) === 0) { $field_to_edit = 'price'; $prefix = CALLBACK_ADMIN_EDIT_PRICE_PREFIX; }
             else { $field_to_edit = 'info'; $prefix = CALLBACK_ADMIN_EDIT_INFO_PREFIX; }
-
-            $ids_str = substr($data, strlen($prefix));
+            
+            $ids_str = substr($data, strlen($prefix)); 
             if (!preg_match('/^(.+)_([^_]+)$/', $ids_str, $matches_ids)) {
                 error_log("Error parsing IDs for edit field: {$data}");
                 editMessageText($chat_id, $message_id, "Error processing command. Invalid format.", null); return;
             }
             $category_key = $matches_ids[1]; $product_id = $matches_ids[2];
 
-            $p = getProductDetails($category_key, $product_id);
+            $p = getProductDetails($category_key, $product_id); 
             if(!$p) {
                 error_log("Edit Field: Product not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
                 editMessageText($chat_id, $message_id, "Error: Product not found for editing.", null); return;
@@ -358,7 +358,7 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, "Current {$field_to_edit}: \"".htmlspecialchars($p[$field_to_edit]??'')."\"\nSend new {$field_to_edit}: (or /cancel)", null);
         }
         elseif (strpos($data, CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2]; $p = getProductDetails($category_key, $product_id);
+            $category_key = $matches[1]; $product_id = $matches[2]; $p = getProductDetails($category_key, $product_id); 
             if(!$p) {
                 error_log("Edit Type Prompt: Product not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
                 editMessageText($chat_id, $message_id, "Error: Product not found for editing type.", null); return;
@@ -373,21 +373,21 @@ function processCallbackQuery($callback_query) {
         elseif (strpos($data, CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX) === 0 || strpos($data, CALLBACK_ADMIN_SET_TYPE_TO_MANUAL_PREFIX) === 0) {
             $new_type = (strpos($data, CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX) === 0) ? 'instant' : 'manual';
             $prefix = ($new_type === 'instant') ? CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX : CALLBACK_ADMIN_SET_TYPE_TO_MANUAL_PREFIX;
-            $ids_str = substr($data, strlen($prefix));
+            $ids_str = substr($data, strlen($prefix)); 
 
             if (!preg_match('/^(.+)_([^_]+)$/', $ids_str, $matches_ids)) {
                 error_log("Error parsing IDs for set type: {$data}");
                 editMessageText($chat_id, $message_id, "Error processing command. Invalid format.", null); return;
             }
             $category_key = $matches_ids[1]; $product_id = $matches_ids[2];
-
+            
             global $products; if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
             if(isset($products[$category_key][$product_id])) {
                 $products[$category_key][$product_id]['type'] = $new_type;
                 if($new_type === 'instant' && !isset($products[$category_key][$product_id]['items'])) $products[$category_key][$product_id]['items'] = [];
                 if(writeJsonFile(PRODUCTS_FILE, $products)) { // Check return of writeJsonFile
                     $p_updated = getProductDetails($category_key, $product_id);
-                    $kb_re = [
+                    $kb_re = [ 
                         [['text' => "✏️ Name", 'callback_data' => CALLBACK_ADMIN_EDIT_NAME_PREFIX . "{$category_key}_{$product_id}"]],
                         [['text' => "💲 Price", 'callback_data' => CALLBACK_ADMIN_EDIT_PRICE_PREFIX . "{$category_key}_{$product_id}"]],
                         [['text' => "ℹ️ Info", 'callback_data' => CALLBACK_ADMIN_EDIT_INFO_PREFIX . "{$category_key}_{$product_id}"]],
@@ -399,18 +399,18 @@ function processCallbackQuery($callback_query) {
                 } else {
                      editMessageText($chat_id, $message_id, "⚠️ Error saving product type. Please check server logs/permissions.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX . $category_key . "_" . $product_id ]]]]));
                 }
-            } else {
+            } else { 
                  error_log("Set Type: Product not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
                  editMessageText($chat_id, $message_id, "Error: Product not found when setting type.", null);
             }
         }
         elseif (strpos($data, CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2];
+            $category_key = $matches[1]; $product_id = $matches[2]; 
             $p = getProductDetails($category_key, $product_id);
-            if (!$p || $p['type'] !== 'instant') {
+            if (!$p || $p['type'] !== 'instant') { 
                 error_log("Manage Items: Product not instant or not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
                 editMessageText($chat_id, $message_id, "Error: This product is not an 'instant' type or was not found.", json_encode(['inline_keyboard' => [[['text' => '« Back to Edit Options', 'callback_data' => CALLBACK_ADMIN_EP_SPRO_PREFIX . $category_key . "_" . $product_id ]]]]));
-                return;
+                return; 
             }
             $items_count = count($p['items'] ?? []);
             $kb_rows = [[['text' => '➕ Add New Item', 'callback_data' => CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX . "{$category_key}_{$product_id}"]]];
@@ -429,16 +429,16 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, "Send new item content for '".htmlspecialchars($product_id)."': (or /cancel)", null);
         }
         elseif (strpos($data, CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2];
+            $category_key = $matches[1]; $product_id = $matches[2]; 
             $p = getProductDetails($category_key, $product_id);
-            if (!$p || $p['type'] !== 'instant') {
+            if (!$p || $p['type'] !== 'instant') { 
                  error_log("Remove Inst Item List: Product not instant or not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
                  editMessageText($chat_id, $message_id, "Error: Product not found or not an instant type for item removal.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]])); return;
             }
-            if (empty($p['items'])) {
-                editMessageText($chat_id, $message_id, "No items to remove for ".htmlspecialchars($p['name']).".", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]])); return;
+            if (empty($p['items'])) { 
+                editMessageText($chat_id, $message_id, "No items to remove for ".htmlspecialchars($p['name']).".", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]])); return; 
             }
-            $kb_items = []; foreach($p['items'] as $idx => $item) { $kb_items[] = [['text' => "❌ ".substr(htmlspecialchars($item),0,30).(strlen($item)>30?'...':''), 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX."{$category_key}_{$product_id}_{$idx}"]]; }
+            $kb_items = []; foreach($p['items'] as $idx => $item) { $kb_items[] = [['text' => "❌ ".substr(htmlspecialchars($item),0,30).(strlen($item)>30?'...':''), 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX."{$category_key}_{$product_id}_{$idx}"]]; } 
             $kb_items[] = [['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]];
             editMessageText($chat_id, $message_id, "Select item to remove for ".htmlspecialchars($p['name']).":", json_encode(['inline_keyboard'=>$kb_items]));
         }
@@ -458,7 +458,7 @@ function processCallbackQuery($callback_query) {
                      error_log("Remove Inst Item Do: Failed to write products file after removing item. Cat:{$category_key}, Prod:{$product_id}, ItemIdx: {$item_idx}");
                      editMessageText($chat_id, $message_id, "⚠️ Error saving item removal. Please check server logs.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]]));
                 }
-            } else {
+            } else { 
                 error_log("Remove Inst Item Do: Item not found at index. Cat:{$category_key}, Prod:{$product_id}, ItemIdx: {$item_idx}, Data: {$data}");
                 editMessageText($chat_id, $message_id, "Error: Item not found or already removed.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]]));
             }
@@ -482,8 +482,8 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, "Select product to REMOVE in ".htmlspecialchars($category_key).": (⚠️ Permanent!)", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
         elseif (strpos($data, CALLBACK_ADMIN_RP_SPRO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_RP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2];
-            $p = getProductDetails($category_key, $product_id);
+            $category_key = $matches[1]; $product_id = $matches[2]; 
+            $p = getProductDetails($category_key, $product_id); 
             if(!$p) {
                 error_log("RP_SPRO: Product not found. Data: {$data}, Category: {$category_key}, ProductID: {$product_id}");
                 $error_kb = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_RP_SCAT_PREFIX . $category_key]]]]);
@@ -509,15 +509,15 @@ function processCallbackQuery($callback_query) {
                     unset($products[$category_key]);
                 }
                 error_log("RP_CONF_YES: Unset operations complete for product {$product_id}. Attempting writeJsonFile.");
-
-                if (writeJsonFile(PRODUCTS_FILE, $products)) {
+                
+                if (writeJsonFile(PRODUCTS_FILE, $products)) { 
                     error_log("RP_CONF_YES: Product {$product_id} removed from memory. writeJsonFile succeeded. Attempting to send success message.");
                     editMessageText($chat_id, $message_id, "✅ Product '".htmlspecialchars($removed_name)."' removed.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Categories', 'callback_data'=>CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]]]]));
-                } else {
+                } else { 
                     error_log("RP_CONF_YES: Product {$product_id} removed from memory. writeJsonFile FAILED. Attempting to send save error message.");
                     editMessageText($chat_id, $message_id, "⚠️ Product '".htmlspecialchars($removed_name)."' was removed from memory, but an ERROR occurred saving changes to disk. Please check server logs/permissions.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Categories', 'callback_data'=>CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]]]]));
                 }
-            } else {
+            } else { 
                 error_log("RP_CONF_YES: Product {$product_id} not found in array. Data: {$data}, Category: {$category_key}, ProductID: {$product_id}. Attempting to send 'not found' error message.");
                 editMessageText($chat_id, $message_id, "⚠️ Error: Product '".htmlspecialchars($product_id)."' in category '".htmlspecialchars($category_key)."' not found. It might have been already removed.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Categories', 'callback_data'=>CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]]]]));
             }
@@ -526,7 +526,7 @@ function processCallbackQuery($callback_query) {
             $category_key = $matches[1]; // $matches comes from the preg_match in the elseif condition
             $product_id = $matches[2];   // $matches comes from the preg_match in the elseif condition
 
-            global $products;
+            global $products; 
             if(empty($products)) {
                 error_log("DEBUG RP_CONF_YES: Global products empty, reloading from file.");
                 $products = readJsonFile(PRODUCTS_FILE);
@@ -544,21 +544,21 @@ function processCallbackQuery($callback_query) {
                 error_log("DEBUG RP_CONF_YES: Unset operations complete for product {$product_id}. Attempting writeJsonFile.");
                 // error_log("DEBUG RP_CONF_YES: Products array in memory after unset: " . print_r($products, true)); // Potentially very large log
 
-                if (writeJsonFile(PRODUCTS_FILE, $products)) {
+                if (writeJsonFile(PRODUCTS_FILE, $products)) { 
                     error_log("RP_CONF_YES: Product {$product_id} removed from memory. writeJsonFile succeeded. Attempting to send success message.");
                     editMessageText($chat_id, $message_id, "✅ Product '".htmlspecialchars($removed_name)."' removed.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Categories', 'callback_data'=>CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]]]]));
-                } else {
+                } else { 
                     error_log("RP_CONF_YES: Product {$product_id} removed from memory. writeJsonFile FAILED. Attempting to send save error message.");
                     editMessageText($chat_id, $message_id, "⚠️ Product '".htmlspecialchars($removed_name)."' was removed from memory, but an ERROR occurred saving changes to disk. Please check server logs/permissions.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Categories', 'callback_data'=>CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]]]]));
                 }
-            } else {
+            } else { 
                 error_log("DEBUG RP_CONF_YES: Product {$product_id} not found in array. Data: {$data}, Category: {$category_key}, ProductID: {$product_id}. Attempting to send 'not found' error message."); // Keep DEBUG prefix for this specific log
                 editMessageText($chat_id, $message_id, "⚠️ Error: Product '".htmlspecialchars($product_id)."' in category '".htmlspecialchars($category_key)."' not found. It might have been already removed.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Categories', 'callback_data'=>CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]]]]));
             }
             return; // Ensure we don't fall through
         }
         elseif (strpos($data, CALLBACK_ADMIN_RP_CONF_NO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_RP_CONF_NO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) { // Product ID needed for context if going back to product list, though category is enough if going to category list
-            $category_key = $matches[1];
+            $category_key = $matches[1]; 
             global $products; if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
             $keyboard_rows_no = [];
             if (isset($products[$category_key]) && !empty($products[$category_key])) {
@@ -577,7 +577,7 @@ function processCallbackQuery($callback_query) {
         if (!empty($category_key)) {
             global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
             if (isset($products[$category_key]) && !empty($products[$category_key])) {
-                $kb = generateCategoryKeyboard($category_key);
+                $kb = generateCategoryKeyboard($category_key); 
                 editMessageText($chat_id, $message_id, "Please select a {$category_name} plan:", $kb);
             } else {
                 editMessageText($chat_id, $message_id, "Sorry, no {$category_name} products available.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]));
@@ -585,7 +585,7 @@ function processCallbackQuery($callback_query) {
         }
     }
     elseif (preg_match('/^(spotify_plan|ssh_plan|v2ray_plan)_(.+)$/', $data, $matches)) { // Product selection
-        $product_type_key = $matches[1]; $product_id = $matches[2];
+        $product_type_key = $matches[1]; $product_id = $matches[2]; 
         $product = getProductDetails($product_type_key, $product_id);
         if ($product) {
             $plan_info = "<b>Product:</b> " . htmlspecialchars($product['name']) . "\n";
@@ -597,7 +597,7 @@ function processCallbackQuery($callback_query) {
             elseif($product_type_key === 'ssh_plan') $back_cb = CALLBACK_BUY_SSH;
             elseif($product_type_key === 'v2ray_plan') $back_cb = CALLBACK_BUY_V2RAY;
             $kb = json_encode(['inline_keyboard' => [
-                [['text' => "✅ Buy", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . "{$product_type_key}_{$product_id}"]],
+                [['text' => "✅ Buy", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . "{$product_type_key}_{$product_id}"]], 
                 [['text' => "« Back", 'callback_data' => $back_cb ]]
             ]]);
             editMessageText($chat_id, $message_id, $plan_info, $kb);
@@ -614,7 +614,7 @@ function processCallbackQuery($callback_query) {
              editMessageText($chat_id, $message_id, "Error processing purchase. Invalid format.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_BACK_TO_MAIN]]]])); return;
         }
         $category_key = $matches_ids[1]; $product_id = $matches_ids[2];
-
+        
         $product = getProductDetails($category_key, $product_id);
         if ($product) {
             setUserState($user_id, ['status' => STATE_AWAITING_RECEIPT, 'message_id' => $message_id, 'product_name' => $product['name'], 'price' => $product['price'], 'category_key' => $category_key, 'product_id' => $product_id]);
@@ -634,7 +634,7 @@ function processCallbackQuery($callback_query) {
         if(!$is_admin) { return; }
         $is_accept = strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) === 0;
         $target_user_id_str = substr($data, strlen($is_accept ? CALLBACK_ACCEPT_PAYMENT_PREFIX : CALLBACK_REJECT_PAYMENT_PREFIX));
-
+        
         $original_caption = $callback_query->message->caption ?? '';
         $product_name_from_caption = "Unknown Product (from receipt)";
         $price_from_caption = "N/A";
@@ -647,15 +647,15 @@ function processCallbackQuery($callback_query) {
 
         if ($is_accept) {
             recordPurchase($target_user_id_str, $product_name_from_caption, $price_from_caption);
-            editMessageCaption($chat_id, $message_id, $original_caption . "\n\n✅ PAYMENT ACCEPTED by admin {$user_id}.", null);
+            editMessageCaption($chat_id, $message_id, $original_caption . "\n\n✅ PAYMENT ACCEPTED by admin {$user_id}.", null); 
             sendMessage($target_user_id_str, "✅ Your payment for '{$product_name_from_caption}' has been accepted! Check 'My Products'.");
-        } else {
+        } else { 
             editMessageCaption($chat_id, $message_id, $original_caption . "\n\n❌ PAYMENT REJECTED by admin {$user_id}.", null);
             sendMessage($target_user_id_str, "⚠️ Your payment for '{$product_name_from_caption}' has been rejected. Please contact support if you have questions.");
         }
     }
     elseif ($data === CALLBACK_BACK_TO_MAIN) {
-        $first_name = $callback_query->from->first_name;
+        $first_name = $callback_query->from->first_name; 
         $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome back to the main menu.\n\nPlease select an option:";
         $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard;
         editMessageText($chat_id, $message_id, $welcome_text, $keyboard);

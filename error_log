@@ -1,0 +1,16 @@
+[05-Jul-2025 06:27:12 UTC] EP_SPRO: Product not found. Data: admin_ep_spro_ssh_plan_prod_id1, Category: ssh_plan_prod, ProductID: id1
+[05-Jul-2025 07:29:27 UTC] EP_SPRO: Product not found. Data: admin_ep_spro_ssh_plan_prod_id1, Category: ssh_plan_prod, ProductID: id1
+[05-Jul-2025 07:29:45 UTC] RP_SPRO: Product not found. Data: admin_rp_spro_ssh_plan_prod_id1, Category: ssh_plan_prod, ProductID: id1
+[05-Jul-2025 07:29:58 UTC] DEBUG PRE-ACK: RP_CONF_YES_PREFIX data received by processCallbackQuery. Data: admin_rp_conf_yes_ssh_plan_sh1
+[05-Jul-2025 07:29:58 UTC] DEBUG HANDLER: RP_CONF_YES_PREFIX block entered. Data: admin_rp_conf_yes_ssh_plan_sh1 - ChatID: 2045651875 - MsgID: 3035
+[05-Jul-2025 07:33:19 UTC] DEBUG PRE-ACK: RP_CONF_YES_PREFIX data received by processCallbackQuery. Data: admin_rp_conf_yes_ssh_plan_sh1
+[05-Jul-2025 07:33:19 UTC] DEBUG HANDLER: RP_CONF_YES_PREFIX block entered. Data: admin_rp_conf_yes_ssh_plan_sh1
+[05-Jul-2025 07:33:19 UTC] DEBUG RP_CONF_YES: Parsed Cat=ssh_plan, Prod=sh1. Products array state checked/loaded. Checking if product is set in array.
+[05-Jul-2025 07:33:19 UTC] DEBUG RP_CONF_YES: Product sh1 found in array. Attempting unset operations.
+[05-Jul-2025 07:33:19 UTC] DEBUG RP_CONF_YES: Unset operations complete for product sh1. File write is SKIPPED for this test.
+[05-Jul-2025 07:37:21 UTC] DEBUG PRE-ACK: RP_CONF_YES_PREFIX data received by processCallbackQuery. Data: admin_rp_conf_yes_ssh_plan_sh1
+[05-Jul-2025 07:37:21 UTC] DEBUG HANDLER: RP_CONF_YES_PREFIX block entered. Data: admin_rp_conf_yes_ssh_plan_sh1
+[05-Jul-2025 07:37:21 UTC] DEBUG RP_CONF_YES: Parsed Cat=ssh_plan, Prod=sh1. Products array state checked/loaded. Checking if product is set in array.
+[05-Jul-2025 07:37:21 UTC] DEBUG RP_CONF_YES: Product sh1 found in array. Attempting unset operations.
+[05-Jul-2025 07:37:21 UTC] DEBUG RP_CONF_YES: Unset operations complete for product sh1. Attempting writeJsonFile.
+[05-Jul-2025 07:37:21 UTC] RP_CONF_YES: Product sh1 removed from memory. writeJsonFile succeeded. Attempting to send success message.

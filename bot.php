@@ -18,7 +18,7 @@ if (!$update) { exit(); }
 // --- PRIORITY 1: Handle button presses (callback queries) ---
 if (isset($update->callback_query)) {
     processCallbackQuery($update->callback_query);
-    exit();
+    exit(); 
 }
 
 // --- PRIORITY 2: Handle regular messages ---
@@ -27,7 +27,7 @@ if (isset($update->message)) {
     $chat_id = $message->chat->id;
     $user_id = $message->from->id;
     $text = $message->text ?? null;
-    $is_admin = in_array($user_id, getAdminIds());
+    $is_admin = in_array($user_id, getAdminIds()); 
     $user_state = getUserState($user_id);
 
     // Check if user is banned
@@ -38,51 +38,51 @@ if (isset($update->message)) {
     }
 
     // --- Admin is adding a product (New Flow using defined constants) ---
-    if ($is_admin && is_array($user_state) &&
+    if ($is_admin && is_array($user_state) && 
         in_array($user_state['status'], [
-            STATE_ADMIN_ADDING_PROD_NAME,
-            STATE_ADMIN_ADDING_PROD_PRICE,
-            STATE_ADMIN_ADDING_PROD_INFO,
-            STATE_ADMIN_ADDING_PROD_ID,
+            STATE_ADMIN_ADDING_PROD_NAME, 
+            STATE_ADMIN_ADDING_PROD_PRICE, 
+            STATE_ADMIN_ADDING_PROD_INFO, 
+            STATE_ADMIN_ADDING_PROD_ID, 
             STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS
             ])
     ) {
         switch ($user_state['status']) {
             case STATE_ADMIN_ADDING_PROD_NAME:
                 $user_state['new_product_name'] = $text;
-                $user_state['status'] = STATE_ADMIN_ADDING_PROD_TYPE_PROMPT;
+                $user_state['status'] = STATE_ADMIN_ADDING_PROD_TYPE_PROMPT; 
                 setUserState($user_id, $user_state);
                 promptForProductType($chat_id, $user_id, $user_state['category_key'], $text);
                 break;
 
-            case STATE_ADMIN_ADDING_PROD_PRICE:
+            case STATE_ADMIN_ADDING_PROD_PRICE: 
                 if (!is_numeric($text) || $text < 0) {
                     sendMessage($chat_id, "Invalid price. Please enter a non-negative number.");
                     sendMessage($chat_id, "Enter the price for '{$user_state['new_product_name']}': (numbers only)");
                     break;
                 }
                 $user_state['new_product_price'] = $text;
-                $user_state['status'] = STATE_ADMIN_ADDING_PROD_INFO;
+                $user_state['status'] = STATE_ADMIN_ADDING_PROD_INFO; 
                 setUserState($user_id, $user_state);
                 sendMessage($chat_id, "Enter the product information/description for '{$user_state['new_product_name']}' (this will be shown on the confirmation page):");
                 break;
 
-            case STATE_ADMIN_ADDING_PROD_INFO:
+            case STATE_ADMIN_ADDING_PROD_INFO: 
                 $user_state['new_product_info'] = $text;
-                setUserState($user_id, $user_state);
-                if ($user_state['new_product_type'] === 'instant') {
+                setUserState($user_id, $user_state); 
+                if ($user_state['new_product_type'] === 'instant') { 
                     $user_state['status'] = STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS;
-                    $user_state['new_product_items_buffer'] = [];
+                    $user_state['new_product_items_buffer'] = []; 
                     setUserState($user_id, $user_state);
                     sendMessage($chat_id, "Product type: Instant Delivery.\nPlease send each deliverable item as a separate message (e.g., a code, a link, account details).\nType /doneitems when you have added all items for '{$user_state['new_product_name']}'.");
-                } else {
+                } else { 
                     $user_state['status'] = STATE_ADMIN_ADDING_PROD_ID;
                     setUserState($user_id, $user_state);
                     sendMessage($chat_id, "Product type: Manual Delivery.\nEnter a unique ID for '{$user_state['new_product_name']}' (e.g., 'product_xyz' or a number):");
                 }
                 break;
-
-            case STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS:
+            
+            case STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS: 
                 if ($text === '/doneitems') {
                     $user_state['status'] = STATE_ADMIN_ADDING_PROD_ID;
                     setUserState($user_id, $user_state);
@@ -94,8 +94,8 @@ if (isset($update->message)) {
                 }
                 break;
 
-            case STATE_ADMIN_ADDING_PROD_ID:
-                $product_id_input = trim($text);
+            case STATE_ADMIN_ADDING_PROD_ID: 
+                $product_id_input = trim($text); 
                 if (empty($product_id_input)) {
                     sendMessage($chat_id, "Product ID cannot be empty. Please enter a unique ID:");
                     break;
@@ -113,7 +113,7 @@ if (isset($update->message)) {
                     'items' => ($user_state['new_product_type'] === 'instant' ? $user_state['new_product_items_buffer'] : [])
                 ];
                 $products[$user_state['category_key']][$product_id_input] = $new_product_data;
-
+                
                 if (writeJsonFile(PRODUCTS_FILE, $products)) {
                     sendMessage($chat_id, "✅ Product '{$user_state['new_product_name']}' (ID: {$product_id_input}) added successfully to category '{$user_state['category_key']}'!");
                     clearUserState($user_id);
@@ -128,16 +128,16 @@ if (isset($update->message)) {
     // --- Admin is manually adding a product for a user (after /addprod <USERID>) ---
     elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_ADDING_PROD_MANUAL) {
         $target_user_id = $user_state['target_user_id'];
-        $admin_chat_id = $chat_id;
+        $admin_chat_id = $chat_id; 
         if (strtolower($text) === '/cancel') {
-            clearUserState($user_id);
+            clearUserState($user_id); 
             sendMessage($admin_chat_id, "Cancelled adding a manual product to user `{$target_user_id}`.", null, 'Markdown');
         } else {
-            $product_description = $text;
-            recordPurchase($target_user_id, "🎁 " . $product_description, "Manually Added");
-            clearUserState($user_id);
+            $product_description = $text; 
+            recordPurchase($target_user_id, "🎁 " . $product_description, "Manually Added"); 
+            clearUserState($user_id); 
             sendMessage($admin_chat_id, "✅ Custom product '" . htmlspecialchars($product_description) . "' has been added to user `{$target_user_id}`'s purchases.", null, 'Markdown');
-            if ($target_user_id != $user_id) {
+            if ($target_user_id != $user_id) { 
                  sendMessage($target_user_id, "🎁 A new item has been manually added to your purchases by an admin: '" . htmlspecialchars($product_description) . "'. You can see it in 'My Products'.");
             }
         }
@@ -146,7 +146,7 @@ if (isset($update->message)) {
     elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_EDITING_PROD_FIELD) {
         $field_to_edit = $user_state['field_to_edit'];
         $category_key = $user_state['category_key'];
-        $product_id = $user_state['product_id'];
+        $product_id = $user_state['product_id']; 
         $original_message_id = $user_state['original_message_id'] ?? null;
 
         if ($text === '/cancel') {
@@ -172,7 +172,7 @@ if (isset($update->message)) {
             $text_msg = "Edit cancelled.\nEditing Product: <b>" . htmlspecialchars($product_details_current['name']) . "</b>\nID: {$product_id}\nSelect what you want to edit:";
             if(isset($original_message_id)){
                 editMessageText($chat_id, $original_message_id, $text_msg, json_encode(['inline_keyboard' => $edit_options_kb_rows_tmp]), 'HTML');
-            } else {
+            } else { 
                 sendMessage($chat_id, $text_msg, json_encode(['inline_keyboard' => $edit_options_kb_rows_tmp]), 'HTML');
             }
             exit();
@@ -191,7 +191,7 @@ if (isset($update->message)) {
         if ($validation_error) {
             sendMessage($chat_id, $validation_error);
         } else {
-            global $products;
+            global $products; 
             if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
             if (isset($products[$category_key][$product_id])) {
                 $old_value = $products[$category_key][$product_id][$field_to_edit] ?? ($field_to_edit === 'info' ? 'Not set' : '');
@@ -224,7 +224,7 @@ if (isset($update->message)) {
             } else {
                 sendMessage($chat_id, "⚠️ Error: Product not found during update. Please go back and try again.");
                 clearUserState($user_id);
-                 if(isset($original_message_id)) {
+                 if(isset($original_message_id)) { 
                     editMessageText($chat_id, $original_message_id, "Product not found. Edit cancelled.", null);
                  }
             }
@@ -233,8 +233,8 @@ if (isset($update->message)) {
     // --- Admin is adding a single instant item to an existing product ---
     elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_ADDING_SINGLE_INSTANT_ITEM) {
         $category_key = $user_state['category_key'];
-        $product_id = $user_state['product_id'];
-        $original_message_id = $user_state['original_message_id'] ?? null;
+        $product_id = $user_state['product_id']; 
+        $original_message_id = $user_state['original_message_id'] ?? null; 
         if ($text === '/cancel') {
             clearUserState($user_id);
             $product_details_current = getProductDetails($category_key, $product_id);
@@ -261,8 +261,8 @@ if (isset($update->message)) {
             exit();
         }
 
-        $new_item_content = $text;
-        if (empty(trim($new_item_content))) {
+        $new_item_content = $text; 
+        if (empty(trim($new_item_content))) { 
             sendMessage($chat_id, "Item content cannot be empty. Please send the content or /cancel.");
         } else {
             if (addInstantProductItem($category_key, $product_id, $new_item_content)) { // addInstantProductItem internally calls writeJsonFile
@@ -279,7 +279,7 @@ if (isset($update->message)) {
                      $kb_rows_upd[] = [['text' => '➖ Remove An Item', 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX . "{$category_key}_{$product_id}"]];
                 }
                 $kb_rows_upd[] = [['text' => '« Back to Edit Options', 'callback_data' => CALLBACK_ADMIN_EP_SPRO_PREFIX . "{$category_key}_{$product_id}"]];
-                if(isset($original_message_id)){
+                if(isset($original_message_id)){ 
                     editMessageText($chat_id, $original_message_id, $items_text_upd, json_encode(['inline_keyboard' => $kb_rows_upd]), 'HTML');
                 } else {
                      sendMessage($chat_id, $items_text_upd, json_encode(['inline_keyboard' => $kb_rows_upd]), 'HTML');
@@ -300,10 +300,10 @@ if (isset($update->message)) {
                 sendMessage($user_id, "☑️ Chat ended with user $current_chat_partner.");
                 sendMessage($current_chat_partner, "☑️ The support chat has been ended by the admin.");
             }
-        }
+        } 
         elseif ($is_admin) {
             bot('copyMessage', ['from_chat_id' => $chat_id, 'chat_id' => $user_state['chatting_with'], 'message_id' => $message->message_id]);
-        }
+        } 
         else {
             sendMessage($chat_id, "↳ Your message has been sent to the admin.");
             bot('copyMessage', ['from_chat_id' => $chat_id, 'chat_id' => $user_state['chatting_with'], 'message_id' => $message->message_id]);
@@ -328,8 +328,8 @@ if (isset($update->message)) {
             $user_info .= "User ID: `$user_id`\n\n";
             $user_info .= "Message:\n" . htmlspecialchars($text);
             $admin_ids = getAdminIds();
-            if(!empty($admin_ids)){
-                $admin_id_to_send_to = $admin_ids[0];
+            if(!empty($admin_ids)){ 
+                $admin_id_to_send_to = $admin_ids[0]; 
                 sendMessage($admin_id_to_send_to, $user_info, null, 'Markdown');
             } else {
                 error_log("No admins configured to receive support message from user $user_id");
@@ -359,7 +359,7 @@ if (isset($update->message)) {
         elseif ($text === "/start") {
             $first_name = $message->from->first_name;
             $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome to the shop.\n\nPlease select an option:";
-            $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard;
+            $keyboard = $is_admin ? $adminMenuKeyboard : $mainMenuKeyboard; 
             sendMessage($chat_id, $welcome_text, $keyboard);
         }
         // User sends a photo receipt
@@ -371,9 +371,9 @@ if (isset($update->message)) {
                 $price = $state['price'] ?? 'N/A';
                 $user_info = "🧾 New Payment Receipt\n\n▪️ **Product:** $product_name\n▪️ **Price:** $$price\n\n👤 **From User:**\nName: " . htmlspecialchars(($message->from->first_name ?? '') . " " . ($message->from->last_name ?? '')) . "\nUsername: @" . ($message->from->username ?? 'N/A') . "\nID: `$user_id`";
                 $photo_file_id = $message->photo[count($message->photo) - 1]->file_id;
-                forwardPhotoToAdmin($photo_file_id, $user_info, $user_id);
+                forwardPhotoToAdmin($photo_file_id, $user_info, $user_id); 
                 sendMessage($chat_id, "✅ Thank you! Your receipt has been submitted and is now under review.");
-                 clearUserState($user_id);
+                 clearUserState($user_id); 
             } else {
                 sendMessage($chat_id, "I've received your photo, but I wasn't expecting one. If you need help, please use the Support button.");
             }
