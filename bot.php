@@ -503,7 +503,7 @@ if (isset($update->message)) {
                 $photo_file_id = $message->photo[count($message->photo) - 1]->file_id;
                 forwardPhotoToAdmin($photo_file_id, $user_info, $user_id); 
                 sendMessage($chat_id, "✅ Thank you! Your receipt has been submitted and is now under review.");
-                 clearUserState($user_id); 
+                // clearUserState($user_id); // DO NOT clear state here; it's needed for admin to process payment. It's cleared in processCallbackQuery.
             } else {
                 sendMessage($chat_id, "I've received your photo, but I wasn't expecting one. If you need help, please use the Support button.");
             }
