@@ -852,7 +852,7 @@ function processCallbackQuery($callback_query) {
                 'product_id' => $product_id_confirm_buy
             ]);
             $paymentDets_buy = getPaymentDetails();
-            $text_buy_confirm = "To complete your purchase for <b>".htmlspecialchars($product_to_buy['name'])."</b> (Price: \$".htmlspecialchars($product_to_buy['price'])."), please transfer the amount to:\n\n";
+            $text_buy_confirm = "To complete your purchase for *".htmlspecialchars($product_to_buy['name'])."* (Price: *$".htmlspecialchars($product_to_buy['price'])."*), please transfer the amount to:\n\n"; // Changed <b> to *
             $text_buy_confirm .= "Card Number: `".htmlspecialchars($paymentDets_buy['card_number'])."`\n";
             $text_buy_confirm .= "Card Holder: `".htmlspecialchars($paymentDets_buy['card_holder'])."`\n\n";
             $text_buy_confirm .= "After making the payment, please send a screenshot of the transaction receipt to this chat.\n\nType /cancel to cancel this purchase.";
