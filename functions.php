@@ -294,13 +294,28 @@ function processCallbackQuery($callback_query) {
             if(strpos($data, CALLBACK_ADMIN_EDIT_NAME_PREFIX) === 0) { $field_to_edit = 'name'; $prefix = CALLBACK_ADMIN_EDIT_NAME_PREFIX; }
             elseif(strpos($data, CALLBACK_ADMIN_EDIT_PRICE_PREFIX) === 0) { $field_to_edit = 'price'; $prefix = CALLBACK_ADMIN_EDIT_PRICE_PREFIX; }
             else { $field_to_edit = 'info'; $prefix = CALLBACK_ADMIN_EDIT_INFO_PREFIX; }
-            $ids_str = substr($data, strlen($prefix)); list($category_key, $product_id) = explode('_', $ids_str, 2);
-            $p = getProductDetails($category_key, $product_id); if(!$p) return;
+
+            $ids_str = substr($data, strlen($prefix));
+            if (!preg_match('/^(.+)_([^_]+)$/', $ids_str, $matches_ids)) {
+                error_log("Error parsing IDs for edit field: {$data}");
+                editMessageText($chat_id, $message_id, "Error processing command. Invalid format.", null); return;
+            }
+            $category_key = $matches_ids[1]; $product_id = $matches_ids[2];
+
+            $p = getProductDetails($category_key, $product_id);
+            if(!$p) {
+                error_log("Edit Field: Product not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
+                editMessageText($chat_id, $message_id, "Error: Product not found for editing.", null); return;
+            }
             setUserState($user_id, ['status' => STATE_ADMIN_EDITING_PROD_FIELD, 'field_to_edit' => $field_to_edit, 'category_key' => $category_key, 'product_id' => $product_id, 'original_message_id' => $message_id]);
             editMessageText($chat_id, $message_id, "Current {$field_to_edit}: \"".htmlspecialchars($p[$field_to_edit]??'')."\"\nSend new {$field_to_edit}: (or /cancel)", null);
         }
-        elseif (strpos($data, CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX, '/') . '([^_]+)_(.+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2]; $p = getProductDetails($category_key, $product_id); if(!$p) return;
+        elseif (strpos($data, CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
+            $category_key = $matches[1]; $product_id = $matches[2]; $p = getProductDetails($category_key, $product_id);
+            if(!$p) {
+                error_log("Edit Type Prompt: Product not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
+                editMessageText($chat_id, $message_id, "Error: Product not found for editing type.", null); return;
+            }
             $kb = [
                 [['text' => '📦 Set Instant', 'callback_data' => CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX . "{$category_key}_{$product_id}"]],
                 [['text' => '👤 Set Manual', 'callback_data' => CALLBACK_ADMIN_SET_TYPE_TO_MANUAL_PREFIX . "{$category_key}_{$product_id}"]],
@@ -311,7 +326,14 @@ function processCallbackQuery($callback_query) {
         elseif (strpos($data, CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX) === 0 || strpos($data, CALLBACK_ADMIN_SET_TYPE_TO_MANUAL_PREFIX) === 0) {
             $new_type = (strpos($data, CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX) === 0) ? 'instant' : 'manual';
             $prefix = ($new_type === 'instant') ? CALLBACK_ADMIN_SET_TYPE_TO_INSTANT_PREFIX : CALLBACK_ADMIN_SET_TYPE_TO_MANUAL_PREFIX;
-            $ids_str = substr($data, strlen($prefix)); list($category_key, $product_id) = explode('_', $ids_str, 2);
+            $ids_str = substr($data, strlen($prefix));
+
+            if (!preg_match('/^(.+)_([^_]+)$/', $ids_str, $matches_ids)) {
+                error_log("Error parsing IDs for set type: {$data}");
+                editMessageText($chat_id, $message_id, "Error processing command. Invalid format.", null); return;
+            }
+            $category_key = $matches_ids[1]; $product_id = $matches_ids[2];
+
             global $products; if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
             if(isset($products[$category_key][$product_id])) {
                 $products[$category_key][$product_id]['type'] = $new_type;
@@ -331,28 +353,47 @@ function processCallbackQuery($callback_query) {
             } else { /* error */ }
         }
         // --- Manage Instant Items ---
-        elseif (strpos($data, CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX, '/') . '([^_]+)_(.+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2]; $p = getProductDetails($category_key, $product_id);
-            if (!$p || $p['type'] !== 'instant') { /* error */ return; }
+        elseif (strpos($data, CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
+            $category_key = $matches[1]; $product_id = $matches[2];
+            $p = getProductDetails($category_key, $product_id);
+            if (!$p || $p['type'] !== 'instant') {
+                error_log("Manage Items: Product not instant or not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
+                editMessageText($chat_id, $message_id, "Error: This product is not an 'instant' type or was not found.", json_encode(['inline_keyboard' => [[['text' => '« Back to Edit Options', 'callback_data' => CALLBACK_ADMIN_EP_SPRO_PREFIX . $category_key . "_" . $product_id ]]]])); // Assuming product_id is safe for callback
+                return;
+            }
             $items_count = count($p['items'] ?? []);
             $kb_rows = [[['text' => '➕ Add New Item', 'callback_data' => CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX . "{$category_key}_{$product_id}"]]];
             if ($items_count > 0) $kb_rows[] = [['text' => '➖ Remove An Item', 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX . "{$category_key}_{$product_id}"]];
             $kb_rows[] = [['text' => '« Back to Edit Options', 'callback_data' => CALLBACK_ADMIN_EP_SPRO_PREFIX . "{$category_key}_{$product_id}"]];
             editMessageText($chat_id, $message_id, "<b>Manage Items: ".htmlspecialchars($p['name'])."</b> ({$items_count} items)", json_encode(['inline_keyboard' => $kb_rows]), 'HTML');
         }
-        elseif (strpos($data, CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX, '/') . '([^_]+)_(.+)$/', $data, $matches)) {
+        elseif (strpos($data, CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
             $category_key = $matches[1]; $product_id = $matches[2];
+            // Ensure product exists before setting state
+            $p = getProductDetails($category_key, $product_id);
+            if (!$p || $p['type'] !== 'instant') {
+                error_log("Add Inst Item Prompt: Product not instant or not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
+                editMessageText($chat_id, $message_id, "Error: Product not found or not an instant type.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]])); return;
+            }
             setUserState($user_id, ['status' => STATE_ADMIN_ADDING_SINGLE_INSTANT_ITEM, 'category_key' => $category_key, 'product_id' => $product_id, 'original_message_id' => $message_id]);
             editMessageText($chat_id, $message_id, "Send new item content for '".htmlspecialchars($product_id)."': (or /cancel)", null);
         }
-        elseif (strpos($data, CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX, '/') . '([^_]+)_(.+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2]; $p = getProductDetails($category_key, $product_id);
-            if (!$p || empty($p['items'])) { /* error or no items */ editMessageText($chat_id, $message_id, "No items to remove.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]])); return; }
-            $kb_items = []; foreach($p['items'] as $idx => $item) { $kb_items[] = [['text' => "❌ ".substr(htmlspecialchars($item),0,30).(strlen($item)>30?'...':''), 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX."{$category_key}_{$product_id}_{$idx}"]]; }
+        elseif (strpos($data, CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
+            $category_key = $matches[1]; $product_id = $matches[2];
+            $p = getProductDetails($category_key, $product_id);
+            if (!$p || $p['type'] !== 'instant') {
+                 error_log("Remove Inst Item List: Product not instant or not found. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
+                 editMessageText($chat_id, $message_id, "Error: Product not found or not an instant type for item removal.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]])); return;
+            }
+            if (empty($p['items'])) {
+                editMessageText($chat_id, $message_id, "No items to remove for ".htmlspecialchars($p['name']).".", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]])); return;
+            }
+            $kb_items = []; foreach($p['items'] as $idx => $item) { $kb_items[] = [['text' => "❌ ".substr(htmlspecialchars($item),0,30).(strlen($item)>30?'...':''), 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX."{$category_key}_{$product_id}_{$idx}"]]; } // Index appended here
             $kb_items[] = [['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]];
             editMessageText($chat_id, $message_id, "Select item to remove for ".htmlspecialchars($p['name']).":", json_encode(['inline_keyboard'=>$kb_items]));
         }
-        elseif (strpos($data, CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX, '/') . '([^_]+)_([^_]+)_(\d+)$/', $data, $matches)) {
+        // Regex for CategoryKey_ProductID_ItemIndex
+        elseif (strpos($data, CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX, '/') . '(.+)_([^_]+)_(\d+)$/', $data, $matches)) {
             $category_key = $matches[1]; $product_id = $matches[2]; $item_idx = (int)$matches[3];
             global $products; if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
             if(isset($products[$category_key][$product_id]['items'][$item_idx])) {
