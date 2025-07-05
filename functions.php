@@ -12,8 +12,23 @@ define('BOT_CONFIG_DATA_FILE', 'bot_config_data.json');
 //  STATE & DATA MANAGEMENT FUNCTIONS
 // ===================================================================
 function readJsonFile($filename) { if (!file_exists($filename)) return []; $json = file_get_contents($filename); return json_decode($json, true) ?: []; }
-function writeJsonFile($filename, $data) { file_put_contents($filename, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)); }
-function setUserState($user_id, $state) { $states = readJsonFile(STATE_FILE); $states[$user_id] = $state; writeJsonFile(STATE_FILE, $states); }
+
+function writeJsonFile($filename, $data) {
+    $json_data = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    if ($json_data === false) {
+        error_log("writeJsonFile: json_encode error for {$filename}: " . json_last_error_msg());
+        return false;
+    }
+
+    if (file_put_contents($filename, $json_data) === false) {
+        error_log("writeJsonFile: file_put_contents error for {$filename}. Check permissions, path, or disk space.");
+        // Consider also checking if directory is writable: is_writable(dirname($filename))
+        return false;
+    }
+    return true;
+}
+
+function setUserState($user_id, $state) { $states = readJsonFile(STATE_FILE); $states[$user_id] = $state; writeJsonFile(STATE_FILE, $states); } // Note: This doesn't check return of writeJsonFile, could be enhanced if state saving becomes an issue.
 function getUserState($user_id) { $states = readJsonFile(STATE_FILE); return $states[$user_id] ?? null; }
 function clearUserState($user_id) { $states = readJsonFile(STATE_FILE); if (isset($states[$user_id])) { unset($states[$user_id]); writeJsonFile(STATE_FILE, $states); } }
 
