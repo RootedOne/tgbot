@@ -164,7 +164,7 @@ function generateBotStatsText() {
 //  TELEGRAM API FUNCTIONS
 // ===================================================================
 function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
-    // error_log("START_MENU: generateDynamicMainMenuKeyboard called. Admin: " . ($is_admin_menu ? 'Yes' : 'No')); // Kept for now, can be removed later
+    // error_log("START_MENU: generateDynamicMainMenuKeyboard called. Admin: " . ($is_admin_menu ? 'Yes' : 'No'));
     global $products;
     $products = readJsonFile(PRODUCTS_FILE);
 
@@ -211,14 +211,14 @@ function forwardPhotoToAdmin($file_id, $caption, $original_user_id) {
 }
 
 function generateCategoryKeyboard($category_key) {
-    // error_log("GEN_CAT_KB: Called for category: " . $category_key); // Keep this for a bit
+    // error_log("GEN_CAT_KB: Called for category: " . $category_key);
     global $products;
 
     $keyboard = ['inline_keyboard' => []];
     $category_products = $products[$category_key] ?? [];
     // error_log("GEN_CAT_KB: Products in this category ('" . $category_key . "'): " . print_r($category_products, true));
 
-    // if (empty($category_products)) { // Not strictly needed to log here, user gets feedback
+    // if (empty($category_products)) {
     //     error_log("GEN_CAT_KB: No products found in loop for category: " . $category_key);
     // }
 
@@ -227,7 +227,7 @@ function generateCategoryKeyboard($category_key) {
             $product_display_name = $details['name'];
             $product_price = $details['price'];
             $callback_value = "{$category_key}_{$id}";
-            // error_log("GEN_CAT_KB_PROD_CB: For category '{$category_key}', generated product callback: '" . $callback_value . "'"); // Can be removed
+            // error_log("GEN_CAT_KB_PROD_CB: For category '{$category_key}', generated product callback: '" . $callback_value . "'");
             $keyboard['inline_keyboard'][] = [['text' => "{$product_display_name} - \${$product_price}", 'callback_data' => $callback_value]];
         } else {
             error_log("GEN_CAT_KB: Product ID '{$id}' in category '{$category_key}' has malformed details: " . print_r($details, true));
@@ -248,10 +248,10 @@ function processCallbackQuery($callback_query) {
     $message_id = $callback_query->message->message_id;
     $is_admin = in_array($user_id, getAdminIds());
 
-    error_log("PROCESS_CALLBACK_QUERY: Received data: '" . $data . "' | UserID: " . $user_id); // Simplified top log
+    error_log("PROCESS_CALLBACK_QUERY: Received data: '" . $data . "' | UserID: " . $user_id);
 
     if (strpos($data, CALLBACK_ADMIN_RP_CONF_YES_PREFIX) === 0) {
-        // error_log("DEBUG PRE-ACK: RP_CONF_YES_PREFIX data received by processCallbackQuery. Data: " . $data); // Can be commented
+        // error_log("DEBUG PRE-ACK: RP_CONF_YES_PREFIX data received by processCallbackQuery. Data: " . $data);
     }
 
     answerCallbackQuery($callback_query->id);
@@ -263,7 +263,7 @@ function processCallbackQuery($callback_query) {
     }
 
     if (strpos($data, 'view_category_') === 0) {
-        // error_log("VIEW_CAT: Entered handler. Data: " . $data); // Entry confirmed by top log
+        // error_log("VIEW_CAT: Entered handler. Data: " . $data);
         global $products; $products = readJsonFile(PRODUCTS_FILE);
 
         $category_key_view = substr($data, strlen('view_category_'));
@@ -795,14 +795,14 @@ function processCallbackQuery($callback_query) {
     }
     */
     // The `else` block below is the temporary debug wrapper for the product selection regex.
-    // After confirming the fix, this `else` should be changed back to `elseif` with the correct combined condition.
     // It will catch any callback that is not 'view_category_', not an admin action, and not one of the other specific general callbacks.
     // This is where product selection callbacks like 'categorykey_productid' should land.
+    // After debugging, this should be converted back to `elseif` with the combined condition.
     else {
-        // error_log("PROD_SEL_DEBUG: PRE-CHECK for data: '" . $data . "'"); // PRE-CHECK is effectively the top-level log now
+        // error_log("PROD_SEL_DEBUG: PRE-CHECK for data: '" . $data . "'");
         $matches_prod_select = [];
         $cond_pregmatch = preg_match('/^(.*)_([^_]+)$/', $data, $matches_prod_select);
-        // error_log("PROD_SEL_DEBUG: preg_match result: " . (int)$cond_pregmatch . ", Matches: " . print_r($matches_prod_select, true)); // Can be verbose
+        // error_log("PROD_SEL_DEBUG: preg_match result: " . (int)$cond_pregmatch . ", Matches: " . print_r($matches_prod_select, true));
 
         $cond_not_view_cat = (strpos($data, 'view_category_') !== 0);
         $cond_not_admin_prefix = (strpos($data, 'admin_') !== 0);
@@ -810,13 +810,16 @@ function processCallbackQuery($callback_query) {
         $cond_not_my_prod = ($data !== CALLBACK_MY_PRODUCTS);
         $cond_not_support = ($data !== CALLBACK_SUPPORT);
         $cond_not_confirm_buy = (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) !== 0);
+        $cond_not_accept_payment = (strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) !== 0);
+        $cond_not_reject_payment = (strpos($data, CALLBACK_REJECT_PAYMENT_PREFIX) !== 0);
 
-        // Log conditions only if pregmatch was true, to reduce noise for other fall-throughs
         if ($cond_pregmatch) {
-            error_log("PROD_SEL_DEBUG: Conditions eval for (data: '".$data."'): not_view_cat=".(int)$cond_not_view_cat.", not_admin_prefix=".(int)$cond_not_admin_prefix.", not_back=".(int)$cond_not_back.", not_my_prod=".(int)$cond_not_my_prod.", not_support=".(int)$cond_not_support.", not_confirm_buy=".(int)$cond_not_confirm_buy);
+            // error_log("PROD_SEL_DEBUG: Conditions eval for (data: '".$data."'): not_view_cat=".(int)$cond_not_view_cat.", not_admin_prefix=".(int)$cond_not_admin_prefix.", not_back=".(int)$cond_not_back.", not_my_prod=".(int)$cond_not_my_prod.", not_support=".(int)$cond_not_support.", not_confirm_buy=".(int)$cond_not_confirm_buy.", not_accept_payment=".(int)$cond_not_accept_payment.", not_reject_payment=".(int)$cond_not_reject_payment);
         }
 
-        if ($cond_pregmatch && $cond_not_view_cat && $cond_not_admin_prefix && $cond_not_back && $cond_not_my_prod && $cond_not_support && $cond_not_confirm_buy) {
+        if ($cond_pregmatch && $cond_not_view_cat && $cond_not_admin_prefix &&
+            $cond_not_back && $cond_not_my_prod && $cond_not_support &&
+            $cond_not_confirm_buy && $cond_not_accept_payment && $cond_not_reject_payment) {
             error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
             global $products; $products = readJsonFile(PRODUCTS_FILE);
 
@@ -842,16 +845,16 @@ function processCallbackQuery($callback_query) {
             }
             return;
         } else {
-             // Only log if pregmatch was true but other conditions failed
              if ($cond_pregmatch) {
-                error_log("PROD_SEL_DEBUG: Product selection conditions NOT met for data: '" . $data . "'. Falling through.");
+                // error_log("PROD_SEL_DEBUG: Product selection conditions NOT met for data: '" . $data . "'. Falling through.");
              }
-             // Fall through to remaining specific handlers
         }
     }
 
     // This must be elseif if the above temporary else block is reverted
-    if (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) === 0) {
+    // For now, to ensure fall-through if the above `else` doesn't return:
+    // Reverting to elseif as the product selection block above now has a return on success.
+    elseif (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) === 0) {
         $ids_str_confirm_buy = substr($data, strlen(CALLBACK_CONFIRM_BUY_PREFIX));
         if (!preg_match('/^(.+)_([^_]+)$/', $ids_str_confirm_buy, $matches_ids_confirm_buy)) {
              error_log("Error parsing IDs for confirm buy: {$data}");
@@ -884,9 +887,15 @@ function processCallbackQuery($callback_query) {
         }
     }
     elseif (strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) === 0 || strpos($data, CALLBACK_REJECT_PAYMENT_PREFIX) === 0) {
-        if(!$is_admin) { sendMessage($chat_id, "Access denied for payment processing."); return; }
+        error_log("PAY_CONF: Entered payment confirmation handler. Data: '" . $data . "', AdminID: " . $user_id);
+        if(!$is_admin) {
+            sendMessage($chat_id, "Access denied for payment processing.");
+            error_log("PAY_CONF: Access denied. User {$user_id} is not admin.");
+            return;
+        }
         $is_accept_payment = strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) === 0;
         $target_user_id_payment = substr($data, strlen($is_accept_payment ? CALLBACK_ACCEPT_PAYMENT_PREFIX : CALLBACK_REJECT_PAYMENT_PREFIX));
+        error_log("PAY_CONF: TargetUserID: '" . $target_user_id_payment . "', Action: " . ($is_accept_payment ? "Accept" : "Reject"));
 
         $original_caption_payment = $callback_query->message->caption ?? '';
         $product_name_from_receipt = "Unknown Product (from receipt)";
@@ -894,13 +903,22 @@ function processCallbackQuery($callback_query) {
 
         if(preg_match("/▪️ \*\*Product:\*\* (.*?)\n/", $original_caption_payment, $cap_matches_name_pay)){ $product_name_from_receipt = trim($cap_matches_name_pay[1]); }
         if(preg_match("/▪️ \*\*Price:\*\* \$(.*?)\n/", $original_caption_payment, $cap_matches_price_pay)){ $price_from_receipt = trim($cap_matches_price_pay[1]); }
+        error_log("PAY_CONF: Parsed from caption - Product: {$product_name_from_receipt}, Price: {$price_from_receipt}");
 
         if ($is_accept_payment) {
+            error_log("PAY_CONF: Attempting to record purchase for " . $target_user_id_payment);
             recordPurchase($target_user_id_payment, $product_name_from_receipt, $price_from_receipt);
+
+            error_log("PAY_CONF: Attempting to edit message caption. ChatID: {$chat_id}, MessageID: {$message_id}");
             editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n✅ PAYMENT ACCEPTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").", null, 'Markdown');
+
+            error_log("PAY_CONF: Attempting to send confirmation to user " . $target_user_id_payment);
             sendMessage($target_user_id_payment, "✅ Great news! Your payment for '<b>".htmlspecialchars($product_name_from_receipt)."</b>' has been accepted. You can find your item in 'My Products'.");
         } else {
+            error_log("PAY_CONF: Payment rejected. Attempting to edit message caption. ChatID: {$chat_id}, MessageID: {$message_id}");
             editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n❌ PAYMENT REJECTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").", null, 'Markdown');
+
+            error_log("PAY_CONF: Attempting to send rejection notification to user " . $target_user_id_payment);
             sendMessage($target_user_id_payment, "⚠️ We regret to inform you that your payment for '<b>".htmlspecialchars($product_name_from_receipt)."</b>' has been rejected. If you believe this is an error, or for more details, please contact support by pressing the Support button.");
         }
     }
@@ -914,3 +932,5 @@ function processCallbackQuery($callback_query) {
 }
 ?>
 ```
+
+[end of functions.php]
