@@ -142,6 +142,129 @@ if (isset($update->message)) {
             }
         }
     }
+    // --- Admin is editing an existing category name ---
+    elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_EDITING_CATEGORY_NAME) {
+        $new_category_key_input = trim($text);
+        $old_category_key = $user_state['old_category_key'];
+        $original_message_id = $user_state['original_message_id'] ?? null;
+        $display_old_key_for_msg = htmlspecialchars(ucfirst(str_replace('_', ' ', $old_category_key)));
+
+        // Function to show Category Management Menu (to avoid repetition)
+        $show_cat_mgt_menu = function($chat_id_func, $message_id_func, $msg_text) use ($original_message_id) { // Ensure $original_message_id is captured if it's from an outer scope and needed here.
+            $cat_mgt_keyboard_edit_cancel = [
+                'inline_keyboard' => [
+                    [['text' => "➕ Add Category", 'callback_data' => CALLBACK_ADMIN_ADD_CATEGORY_PROMPT]],
+                    [['text' => "✏️ Edit Category Name", 'callback_data' => CALLBACK_ADMIN_EDIT_CATEGORY_SELECT]],
+                    [['text' => "➖ Remove Category", 'callback_data' => CALLBACK_ADMIN_REMOVE_CATEGORY_SELECT]],
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            if ($original_message_id && $message_id_func) { // Make sure message_id_func is valid if used
+                 editMessageText($chat_id_func, $message_id_func, $msg_text, json_encode($cat_mgt_keyboard_edit_cancel));
+            } else {
+                // Fallback if original_message_id for editing is not available, send a new message.
+                sendMessage($chat_id_func, $msg_text, json_encode($cat_mgt_keyboard_edit_cancel));
+            }
+        };
+
+        if ($new_category_key_input === '/cancel') {
+            clearUserState($user_id);
+            $show_cat_mgt_menu($chat_id, $original_message_id, "🗂️ Category Management 🗂️\nEdit category '{$display_old_key_for_msg}' cancelled. Select an action:");
+        } elseif (empty($new_category_key_input)) {
+            sendMessage($chat_id, "New category key cannot be empty. Please enter a valid key for '{$display_old_key_for_msg}', or type /cancel.");
+        } elseif (!preg_match('/^[a-zA-Z0-9_]+$/', $new_category_key_input)) {
+            sendMessage($chat_id, "Invalid new category key format for '{$display_old_key_for_msg}'. Please use only alphanumeric characters and underscores (a-z, 0-9, _).\nOr type /cancel.");
+        } elseif ($new_category_key_input === $old_category_key) {
+            sendMessage($chat_id, "The new category key '{$new_category_key_input}' is the same as the old key. No changes made.");
+            clearUserState($user_id);
+            $show_cat_mgt_menu($chat_id, $original_message_id, "🗂️ Category Management 🗂️\nEdit for '{$display_old_key_for_msg}' resulted in no change. Select an action:");
+        } else {
+            global $products;
+            if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
+
+            if (isset($products[$new_category_key_input])) {
+                sendMessage($chat_id, "The new category key '{$new_category_key_input}' already exists. Please choose a different unique key for '{$display_old_key_for_msg}', or type /cancel.");
+            } else {
+                if (!isset($products[$old_category_key])) {
+                     sendMessage($chat_id, "⚠️ Error: The original category '{$display_old_key_for_msg}' (key: `{$old_category_key}`) could not be found. It might have been deleted or changed. Please try again from Category Management.");
+                     clearUserState($user_id);
+                     $show_cat_mgt_menu($chat_id, $original_message_id, "🗂️ Category Management 🗂️\nError editing '{$display_old_key_for_msg}'. Select an action:");
+                     return;
+                }
+
+                $products_to_move = $products[$old_category_key];
+                $products[$new_category_key_input] = $products_to_move;
+                unset($products[$old_category_key]);
+
+                if (writeJsonFile(PRODUCTS_FILE, $products)) {
+                    $display_new_key_for_msg = htmlspecialchars(ucfirst(str_replace('_', ' ', $new_category_key_input)));
+                    sendMessage($chat_id, "✅ Category '{$display_old_key_for_msg}' (key: `{$old_category_key}`) successfully renamed to '{$display_new_key_for_msg}' (key: `{$new_category_key_input}`). All associated products have been moved.");
+                    clearUserState($user_id);
+                    $show_cat_mgt_menu($chat_id, $original_message_id, "🗂️ Category Management 🗂️\nCategory '{$display_old_key_for_msg}' renamed to '{$display_new_key_for_msg}'. Select an action:");
+                } else {
+                    // Attempt to revert in-memory change if save fails
+                    $products[$old_category_key] = $products_to_move;
+                    unset($products[$new_category_key_input]);
+                    error_log("Failed to write products file after category rename from {$old_category_key} to {$new_category_key_input}. In-memory changes reverted.");
+                    sendMessage($chat_id, "⚠️ Failed to save the category rename from '{$display_old_key_for_msg}' to '{$new_category_key_input}'. The change was NOT saved due to a file write error. Please check server logs or file permissions.\nYou are still in the process of editing this category (original key '{$display_old_key_for_msg}'). You can try entering a new key again, or type /cancel.");
+                }
+            }
+        }
+    }
+    // --- Admin is adding a new category name ---
+    elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_ADDING_CATEGORY_NAME) {
+        $new_category_key_input = trim($text);
+        $original_message_id = $user_state['original_message_id'] ?? null;
+
+        if ($new_category_key_input === '/cancel') {
+            clearUserState($user_id);
+            if ($original_message_id) {
+                // Show Category Management main menu again
+                $cat_mgt_keyboard_re = [
+                    'inline_keyboard' => [
+                        [['text' => "➕ Add Category", 'callback_data' => CALLBACK_ADMIN_ADD_CATEGORY_PROMPT]],
+                        [['text' => "✏️ Edit Category Name", 'callback_data' => CALLBACK_ADMIN_EDIT_CATEGORY_SELECT]],
+                        [['text' => "➖ Remove Category", 'callback_data' => CALLBACK_ADMIN_REMOVE_CATEGORY_SELECT]],
+                        [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                    ]
+                ];
+                editMessageText($chat_id, $original_message_id, "🗂️ Category Management 🗂️\nAdd category cancelled. Select an action:", json_encode($cat_mgt_keyboard_re));
+            } else {
+                sendMessage($chat_id, "Add category cancelled.");
+            }
+        } elseif (empty($new_category_key_input)) {
+            sendMessage($chat_id, "Category key cannot be empty. Please enter a valid key, or type /cancel.");
+        } elseif (!preg_match('/^[a-zA-Z0-9_]+$/', $new_category_key_input)) {
+            sendMessage($chat_id, "Invalid category key format. Please use only alphanumeric characters and underscores (a-z, 0-9, _).\nE.g., `action_figures`, `digital_services_2`\nOr type /cancel.");
+        } else {
+            global $products;
+            if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } // Ensure products are loaded
+
+            if (isset($products[$new_category_key_input])) {
+                sendMessage($chat_id, "Category key '{$new_category_key_input}' already exists. Please enter a unique key, or type /cancel.");
+            } else {
+                $products[$new_category_key_input] = []; // Add as an empty category
+                if (writeJsonFile(PRODUCTS_FILE, $products)) {
+                    sendMessage($chat_id, "✅ Category '" . htmlspecialchars($new_category_key_input) . "' added successfully!");
+                    clearUserState($user_id);
+                    if ($original_message_id) {
+                        $cat_mgt_keyboard_re_success = [
+                            'inline_keyboard' => [
+                                [['text' => "➕ Add Category", 'callback_data' => CALLBACK_ADMIN_ADD_CATEGORY_PROMPT]],
+                                [['text' => "✏️ Edit Category Name", 'callback_data' => CALLBACK_ADMIN_EDIT_CATEGORY_SELECT]],
+                                [['text' => "➖ Remove Category", 'callback_data' => CALLBACK_ADMIN_REMOVE_CATEGORY_SELECT]],
+                                [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                            ]
+                        ];
+                        editMessageText($chat_id, $original_message_id, "🗂️ Category Management 🗂️\nCategory '".htmlspecialchars($new_category_key_input)."' added. Select an action:", json_encode($cat_mgt_keyboard_re_success));
+                    }
+                } else {
+                    sendMessage($chat_id, "⚠️ Failed to save the new category '{$new_category_key_input}' to the products file. Please check server logs or file permissions. The category was NOT added.\nYou can try entering the category key again, or type /cancel.");
+                    // User remains in STATE_ADMIN_ADDING_CATEGORY_NAME to allow retry or cancel.
+                }
+            }
+        }
+    }
     // --- Admin is editing a product field ---
     elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_EDITING_PROD_FIELD) {
         $field_to_edit = $user_state['field_to_edit'];
