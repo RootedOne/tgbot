@@ -980,17 +980,10 @@ function processCallbackQuery($callback_query) {
             $text_buy_confirm .= "Card Holder: `".htmlspecialchars($paymentDets_buy['card_holder'])."`\n\n";
             $text_buy_confirm .= "After making the payment, please send a screenshot of the transaction receipt to this chat.\n\nType /cancel to cancel this purchase.";
 
-            $payment_details_for_copy = getPaymentDetails();
-            $card_number_to_prefill = $payment_details_for_copy['card_number'] ?? 'Card number not set';
-            $price_to_prefill = (string)($product_to_buy['price'] ?? 'Price not set');
-
-            $copy_card_button = ['text' => '📋 Copy Card No.', 'switch_inline_query_current_chat' => $card_number_to_prefill];
-            $copy_price_button = ['text' => '💲 Copy Price', 'switch_inline_query_current_chat' => $price_to_prefill];
+            // Fully reverted keyboard to only include the single Cancel button
             $cancel_button = ['text' => '« Cancel Purchase', 'callback_data' => "{$category_key_confirm_buy}_{$product_id_confirm_buy}"];
-
             $kb_buy_confirm_array = [
                 'inline_keyboard' => [
-                    [$copy_card_button, $copy_price_button],
                     [$cancel_button]
                 ]
             ];
