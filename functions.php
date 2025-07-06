@@ -495,9 +495,27 @@ function processCallbackQuery($callback_query) {
             editMessageText($chat_id, $message_id, "🎫 Coupon Management 🎫\nSelect an action:", json_encode($coupon_mgt_keyboard));
             return;
         }
+        elseif ($data === CALLBACK_ADMIN_CANCEL_COUPON_CREATION) {
+            answerCallbackQuery($callback_query->id);
+            clearUserState($user_id);
+            // Re-display Coupon Management Menu
+            $coupon_mgt_keyboard_on_cancel = [
+                'inline_keyboard' => [
+                    [['text' => "➕ Add New Coupon", 'callback_data' => CALLBACK_ADMIN_ADD_COUPON_PROMPT]],
+                    // Future buttons for view/edit/stats
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            editMessageText($chat_id, $message_id, "🎫 Coupon Management 🎫\nCoupon creation cancelled. Select an action:", json_encode($coupon_mgt_keyboard_on_cancel), "HTML");
+            return;
+        }
         elseif ($data === CALLBACK_ADMIN_ADD_COUPON_PROMPT) {
             setUserState($user_id, ['status' => STATE_ADMIN_ADDING_COUPON_CODE, 'original_message_id' => $message_id, 'coupon_data' => [] ]);
-            editMessageText($chat_id, $message_id, "Enter the new coupon code (e.g., SUMMER20, SAVE15OFF).\n\n- It will be stored in UPPERCASE.\n- Should be unique.\n- Alphanumeric characters recommended.\n\nType /cancel to abort.", null);
+            $prompt_text = "Enter the new coupon code (e.g., SUMMER20, SAVE15OFF).\n\n- It will be stored in UPPERCASE.\n- Should be unique.\n- Alphanumeric characters recommended.";
+            $cancel_keyboard = json_encode(['inline_keyboard' => [
+                [['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]
+            ]]);
+            editMessageText($chat_id, $message_id, $prompt_text, $cancel_keyboard, "HTML"); // Assuming HTML for potential bolding later
             return;
         }
         elseif (strpos($data, CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE) === 0 || strpos($data, CALLBACK_ADMIN_SET_COUPON_TYPE_FIXED) === 0) {
@@ -519,8 +537,11 @@ function processCallbackQuery($callback_query) {
             } else {
                 $prompt_value_text .= "Enter the fixed discount amount (e.g., for $5 off enter 5). Must be a positive number.";
             }
-            $prompt_value_text .= "\n\nType /cancel to abort.";
-            editMessageText($chat_id, $message_id, $prompt_value_text, null); // $message_id is from the coupon type selection message
+            // $prompt_value_text .= "\n\nType /cancel to abort."; // Removed
+            $cancel_keyboard_for_value_prompt = json_encode(['inline_keyboard' => [
+                [['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]
+            ]]);
+            editMessageText($chat_id, $message_id, $prompt_value_text, $cancel_keyboard_for_value_prompt, "HTML");
             return;
         }
         elseif ($data === CALLBACK_ADMIN_CATEGORY_MANAGEMENT) {

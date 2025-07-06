@@ -93,6 +93,7 @@ define('CALLBACK_ADMIN_ADD_COUPON_PROMPT', 'admin_add_coupon_prompt');
 // Plan specifies buttons with 'admin_set_coupon_type_percentage' / 'admin_set_coupon_type_fixed' as callback_data.
 define('CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE', 'admin_set_coupon_type_percentage');
 define('CALLBACK_ADMIN_SET_COUPON_TYPE_FIXED', 'admin_set_coupon_type_fixed');
+define('CALLBACK_ADMIN_CANCEL_COUPON_CREATION', 'admin_cancel_coupon');
 
 
 // Payment Callbacks
