@@ -12,6 +12,7 @@ define('BOT_CONFIG_DATA_FILE', 'bot_config_data.json');
 // ===================================================================
 //  STATE & DATA MANAGEMENT FUNCTIONS
 // ===================================================================
+// --- Generic JSON Read/Write ---
 function readJsonFile($filename) { if (!file_exists($filename)) return []; $json = file_get_contents($filename); return json_decode($json, true) ?: []; }
 
 function writeJsonFile($filename, $data) {
@@ -28,6 +29,7 @@ function writeJsonFile($filename, $data) {
     return true;
 }
 
+// --- User State Functions ---
 function setUserState($user_id, $state) { $states = readJsonFile(STATE_FILE); $states[$user_id] = $state; if(!writeJsonFile(STATE_FILE, $states)) {error_log("Failed to write user state for {$user_id}");} }
 function getUserState($user_id) { $states = readJsonFile(STATE_FILE); return $states[$user_id] ?? null; }
 function clearUserState($user_id) { $states = readJsonFile(STATE_FILE); if (isset($states[$user_id])) { unset($states[$user_id]); if(!writeJsonFile(STATE_FILE, $states)){error_log("Failed to write user states after clearing for {$user_id}");}} }
@@ -121,7 +123,58 @@ function promptForProductType($chat_id, $admin_user_id, $category_key, $product_
     sendMessage($chat_id, "Product: '{$product_name_context}'.\nSelect delivery type:", json_encode($type_keyboard));
 }
 
-$products = readJsonFile(PRODUCTS_FILE);
+$products = readJsonFile(PRODUCTS_FILE); // Global products cache
+
+// --- Coupon Data Functions ---
+function readCouponsFile() {
+    return readJsonFile(COUPONS_FILE);
+}
+
+function writeCouponsFile($coupons_array) {
+    return writeJsonFile(COUPONS_FILE, $coupons_array);
+}
+
+function getCouponByCode($code_to_find) {
+    $coupons = readCouponsFile();
+    $code_to_find_upper = strtoupper(trim($code_to_find));
+    foreach ($coupons as $coupon) {
+        if (isset($coupon['code']) && strtoupper($coupon['code']) === $code_to_find_upper) {
+            return $coupon;
+        }
+    }
+    return null;
+}
+
+function addCoupon($coupon_data) {
+    if (!isset($coupon_data['code']) || empty(trim($coupon_data['code']))) {
+        error_log("addCoupon: Coupon code is missing or empty.");
+        return false;
+    }
+    $coupon_data['code'] = strtoupper(trim($coupon_data['code'])); // Ensure uppercase and trimmed
+
+    if (getCouponByCode($coupon_data['code']) !== null) {
+        error_log("addCoupon: Coupon code '{$coupon_data['code']}' already exists.");
+        return false; // Code already exists
+    }
+
+    // Validate required fields (basic validation for now)
+    if (!isset($coupon_data['discount_type']) || !in_array($coupon_data['discount_type'], ['percentage', 'fixed_amount'])) return false;
+    if (!isset($coupon_data['discount_value']) || !is_numeric($coupon_data['discount_value']) || $coupon_data['discount_value'] <= 0) return false;
+    if ($coupon_data['discount_type'] === 'percentage' && $coupon_data['discount_value'] > 100) return false; // Percentage cannot be > 100
+    if (!isset($coupon_data['max_uses']) || !is_numeric($coupon_data['max_uses']) || (int)$coupon_data['max_uses'] < 0) return false; // 0 for unlimited, or positive
+
+    $coupon_data['max_uses'] = (int)$coupon_data['max_uses'];
+    $coupon_data['uses_count'] = $coupon_data['uses_count'] ?? 0;
+    $coupon_data['is_active'] = $coupon_data['is_active'] ?? true;
+    $coupon_data['created_at'] = $coupon_data['created_at'] ?? date('Y-m-d H:i:s');
+
+
+    $coupons = readCouponsFile();
+    $coupons[] = $coupon_data;
+    return writeCouponsFile($coupons);
+}
+// --- End Coupon Data Functions ---
+
 
 // --- BOT STATS FUNCTION ---
 function generateBotStatsText() {
@@ -422,11 +475,52 @@ function processCallbackQuery($callback_query) {
                 'inline_keyboard' => [
                     [['text' => "📦 Product Management", 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]],
                     [['text' => "🗂️ Category Management", 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]],
+                    [['text' => "🎫 Coupon Management", 'callback_data' => CALLBACK_ADMIN_COUPON_MANAGEMENT]],
                     [['text' => "📊 View Bot Stats", 'callback_data' => CALLBACK_ADMIN_VIEW_STATS]],
                     [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]
                 ]
             ];
             editMessageText($chat_id, $message_id, "⚙️ Admin Panel ⚙️", json_encode($admin_panel_keyboard_def));
+            return;
+        }
+        elseif ($data === CALLBACK_ADMIN_COUPON_MANAGEMENT) {
+            $coupon_mgt_keyboard = [
+                'inline_keyboard' => [
+                    [['text' => "➕ Add New Coupon", 'callback_data' => CALLBACK_ADMIN_ADD_COUPON_PROMPT]],
+                    // [['text' => "✏️ View/Edit Coupons", 'callback_data' => 'admin_view_edit_coupons']], // Placeholder for Phase 2/3
+                    // [['text' => "📊 Coupon Stats", 'callback_data' => 'admin_coupon_stats']], // Placeholder for Phase 2/3
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            editMessageText($chat_id, $message_id, "🎫 Coupon Management 🎫\nSelect an action:", json_encode($coupon_mgt_keyboard));
+            return;
+        }
+        elseif ($data === CALLBACK_ADMIN_ADD_COUPON_PROMPT) {
+            setUserState($user_id, ['status' => STATE_ADMIN_ADDING_COUPON_CODE, 'original_message_id' => $message_id, 'coupon_data' => [] ]);
+            editMessageText($chat_id, $message_id, "Enter the new coupon code (e.g., SUMMER20, SAVE15OFF).\n\n- It will be stored in UPPERCASE.\n- Should be unique.\n- Alphanumeric characters recommended.\n\nType /cancel to abort.", null);
+            return;
+        }
+        elseif (strpos($data, CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE) === 0 || strpos($data, CALLBACK_ADMIN_SET_COUPON_TYPE_FIXED) === 0) {
+            $user_state_coupon_type = getUserState($user_id);
+            if (!$user_state_coupon_type || ($user_state_coupon_type['status'] ?? '') !== STATE_ADMIN_ADDING_COUPON_TYPE) {
+                answerCallbackQuery($callback_query->id, "Invalid action or session expired. Please start over.", true);
+                error_log("COUPON_ADD: Invalid state for setting coupon type. User: {$user_id}, State: " . print_r($user_state_coupon_type, true));
+                return;
+            }
+
+            $chosen_type = (strpos($data, CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE) === 0) ? 'percentage' : 'fixed_amount';
+            $user_state_coupon_type['coupon_data']['discount_type'] = $chosen_type;
+            $user_state_coupon_type['status'] = STATE_ADMIN_ADDING_COUPON_VALUE;
+            setUserState($user_id, $user_state_coupon_type);
+
+            $prompt_value_text = "Selected type: " . ucfirst($chosen_type) . ".\n";
+            if ($chosen_type === 'percentage') {
+                $prompt_value_text .= "Enter the discount percentage (e.g., for 10% enter 10). Must be between 1 and 100.";
+            } else {
+                $prompt_value_text .= "Enter the fixed discount amount (e.g., for $5 off enter 5). Must be a positive number.";
+            }
+            $prompt_value_text .= "\n\nType /cancel to abort.";
+            editMessageText($chat_id, $message_id, $prompt_value_text, null); // $message_id is from the coupon type selection message
             return;
         }
         elseif ($data === CALLBACK_ADMIN_CATEGORY_MANAGEMENT) {
