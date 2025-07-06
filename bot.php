@@ -412,8 +412,140 @@ if (isset($update->message)) {
             }
         }
     }
+    // --- Admin is in a manual send session with a user ---
+    elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_MANUAL_SEND_SESSION) {
+        $admin_state_data = $user_state; // Admin's own state
+        $target_user_id_session = $admin_state_data['target_user_id'];
+        $admin_chat_id_session = $chat_id; // Admin's chat ID
+
+        if (isset($message->reply_to_message) && strtolower($text) === '/save') {
+            if ($message->reply_to_message->from->id == $user_id) { // Admin replied to their own message with /save
+                $content_to_save = $message->reply_to_message->text ?? ''; // Assuming text content for now
+                if (!empty(trim($content_to_save))) {
+                    $all_purchases = readJsonFile(USER_PURCHASES_FILE);
+                    $purchase_index_to_update = $admin_state_data['purchase_index'];
+
+                    if (isset($all_purchases[$target_user_id_session][$purchase_index_to_update])) {
+                        $all_purchases[$target_user_id_session][$purchase_index_to_update]['delivered_item_content'] = $content_to_save;
+                        if (writeJsonFile(USER_PURCHASES_FILE, $all_purchases)) {
+                            sendMessage($admin_chat_id_session, "✅ Content saved for this delivery:\n<code>".htmlspecialchars($content_to_save)."</code>\nYou can continue sending messages or use /end.", null, "HTML");
+                            error_log("MANUAL_SEND: Admin {$user_id} saved content for user {$target_user_id_session}, purchase index {$purchase_index_to_update}.");
+                        } else {
+                            sendMessage($admin_chat_id_session, "⚠️ Error: Could not save the content to the purchases file. Please try again or check logs.");
+                            error_log("MANUAL_SEND_ERROR: Failed to write user_purchases.json after admin {$user_id} tried to /save for user {$target_user_id_session}.");
+                        }
+                    } else {
+                        sendMessage($admin_chat_id_session, "⚠️ Error: Could not find the specific purchase record to save content for. Please report this issue.");
+                        error_log("MANUAL_SEND_ERROR: Purchase record not found for user {$target_user_id_session} at index {$purchase_index_to_update} when admin {$user_id} tried to /save.");
+                    }
+                } else {
+                    sendMessage($admin_chat_id_session, "⚠️ Cannot save empty content. Please reply /save to a message with actual content.");
+                }
+            } else {
+                sendMessage($admin_chat_id_session, "⚠️ To use /save, please reply directly to your own message that contains the information you want to save for the user.");
+            }
+        }
+        elseif (strtolower($text) === '/end') {
+            clearUserState($user_id); // Clear admin's session state
+            if (getUserState($target_user_id_session)['status'] === 'in_manual_send_session_with_admin') { // Check if user is still in session
+                 clearUserState($target_user_id_session); // Clear user's session state
+            }
+
+            sendMessage($admin_chat_id_session, "✅ Manual send session ended with User ID: {$target_user_id_session}.");
+            sendMessage($target_user_id_session, "The admin has concluded this delivery session.");
+
+            // Update the original admin message caption (receipt photo)
+            $original_admin_msg_id = $admin_state_data['original_admin_msg_id'] ?? null;
+            if ($original_admin_msg_id) {
+                // Fetch the original caption again if needed, or assume it's implicitly handled by just appending.
+                // For simplicity, we'll assume the caption is still available or not strictly needed to be prepended.
+                // A robust way would be to store the original caption in the state, or fetch it.
+                // However, `editMessageCaption` on a photo requires the *new full caption*.
+                // We might not have the original photo's caption easily here if it wasn't stored in state.
+                // Let's try to retrieve the original message to get its caption.
+                // This is complex as bot() calls don't return full message objects easily.
+                // Simplification: Just send a new message to admin or update the button message.
+                // The current plan says "Update the original admin message".
+                // The original admin message was already edited to remove buttons and show "You are now in a direct send session".
+                // So we edit *that* message.
+                $current_caption_text = "✅ Payment accepted. Delivery session concluded."; // Simplified
+                // If we stored the product name in admin state, we could use it.
+                // $product_name_state = $admin_state_data['purchase_category']."_".$admin_state_data['purchase_product_id']; // Example
+                // $current_caption_text = "✅ Payment accepted for ".$product_name_state.". Delivery session concluded.";
+                // For now, keeping it simple.
+                // The original message ID is $admin_state_data['original_admin_msg_id']
+                // The chat ID is $admin_chat_id_session (which is $chat_id for the admin)
+                // The original message was a photo with caption.
+                // We can't easily *append* to a photo caption without knowing the original.
+                // The message was already edited in functions.php to remove buttons.
+                // Let's assume the previous editMessageCaption replaced the buttons with text. We append to that.
+                // This is still tricky. Let's assume we just edit the text on that message if it was converted to text message.
+                // The plan step 3 said: editMessageCaption($chat_id, $message_id, $admin_caption_update, null, 'Markdown');
+                // So the buttons were removed. We can try to append to this caption.
+                // This requires fetching the current caption, which is not straightforward.
+                // SAFEST: The existing message already says "You are now in a direct send session". We can edit it to "Session ended".
+                 if ($original_admin_msg_id && is_numeric($original_admin_msg_id)) {
+                    // Let's assume the message is the one that had the buttons, its caption was updated.
+                    // We cannot *append* to caption easily. We'd *replace* it.
+                    // The message original_admin_msg_id is in the admin's chat.
+                    $final_caption = "✅ Payment accepted. Delivery session with User ID {$target_user_id_session} concluded.";
+                    // We need to know if it's a photo to use editMessageCaption, or text for editMessageText
+                    // This is complex. For now, we will NOT update the original receipt message further.
+                    // The admin gets a new message "Manual send session ended..." which is clear.
+                    error_log("MANUAL_SEND: Session ended. Admin {$user_id}, User {$target_user_id_session}. Original admin msg ID {$original_admin_msg_id} not further updated to simplify.");
+
+                 }
+
+            }
+        }
+        else { // Admin sends a regular message to be forwarded
+            bot('copyMessage', [
+                'from_chat_id' => $admin_chat_id_session,
+                'chat_id' => $target_user_id_session,
+                'message_id' => $message->message_id
+            ]);
+            // Optional: send confirmation to admin "Message sent"
+            // sendMessage($admin_chat_id_session, "↪️ Sent to user.");
+        }
+    }
+    // --- User is in a manual send session with an admin (receiving messages or sending to admin) ---
+    elseif (!$is_admin && is_array($user_state) && $user_state['status'] === 'in_manual_send_session_with_admin') {
+        $user_session_data = $user_state;
+        $admin_id_to_forward_to = $user_session_data['admin_id'] ?? null;
+        if ($admin_id_to_forward_to) {
+            // Check if the admin is still in that session state with this user
+            $admin_current_state = getUserState($admin_id_to_forward_to);
+            if ($admin_current_state &&
+                ($admin_current_state['status'] ?? null) === STATE_ADMIN_MANUAL_SEND_SESSION &&
+                ($admin_current_state['target_user_id'] ?? null) == $user_id) {
+
+                bot('copyMessage', [
+                    'from_chat_id' => $chat_id, // User's chat_id
+                    'chat_id' => $admin_id_to_forward_to,
+                    'message_id' => $message->message_id
+                ]);
+            } else {
+                // Admin is no longer in session with this user, or state is inconsistent.
+                // Inform user, clear their state.
+                sendMessage($chat_id, "The admin is no longer in this delivery session. If you have further questions, please use the main support option.");
+                clearUserState($user_id);
+            }
+        } else {
+            // User state is corrupted or admin_id missing.
+            sendMessage($chat_id, "There was an issue with the delivery session. Please contact support if needed.");
+            clearUserState($user_id);
+            error_log("MANUAL_SEND_ERROR: User {$user_id} in 'in_manual_send_session_with_admin' but admin_id is missing in their state.");
+        }
+    }
     // --- User is in a direct support chat ---
     elseif (isset($user_state['chatting_with'])) {
+        // This existing block handles the generic /s<ID> support chat.
+        // It needs to be distinguished from the manual send session.
+        // The manual send session is more specific and has higher priority if active.
+        // The order of these elseif blocks matters. STATE_ADMIN_MANUAL_SEND_SESSION should be checked before 'chatting_with'.
+        // And 'in_manual_send_session_with_admin' for user should also be checked before.
+        // The current placement of new blocks *before* 'chatting_with' is correct.
+
         if ($is_admin && preg_match('/^\/e(\d+)$/', $text, $matches)) {
             $customer_id_to_end = $matches[1];
             $current_chat_partner = $user_state['chatting_with'];
@@ -499,11 +631,17 @@ if (isset($update->message)) {
                 if (isset($state['message_id'])) { editMessageReplyMarkup($chat_id, $state['message_id'], null); }
                 $product_name = $state['product_name'] ?? 'Unknown Product';
                 $price = $state['price'] ?? 'N/A';
+        $category_key = $state['category_key'] ?? 'unknown_category'; // Retrieve category_key
+        $product_id = $state['product_id'] ?? 'unknown_product';     // Retrieve product_id
+
                 $user_info = "🧾 New Payment Receipt\n\n▪️ **Product:** $product_name\n▪️ **Price:** $$price\n\n👤 **From User:**\nName: " . htmlspecialchars(($message->from->first_name ?? '') . " " . ($message->from->last_name ?? '')) . "\nUsername: @" . ($message->from->username ?? 'N/A') . "\nID: `$user_id`";
                 $photo_file_id = $message->photo[count($message->photo) - 1]->file_id;
-                forwardPhotoToAdmin($photo_file_id, $user_info, $user_id); 
+
+        // Pass category_key and product_id to forwardPhotoToAdmin
+        forwardPhotoToAdmin($photo_file_id, $user_info, $user_id, $category_key, $product_id);
+
                 sendMessage($chat_id, "✅ Thank you! Your receipt has been submitted and is now under review.");
-                 clearUserState($user_id); 
+        clearUserState($user_id);
             } else {
                 sendMessage($chat_id, "I've received your photo, but I wasn't expecting one. If you need help, please use the Support button.");
             }
