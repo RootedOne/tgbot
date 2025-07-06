@@ -24,6 +24,19 @@ define('STATE_AWAITING_RECEIPT', 'awaiting_receipt');
 define('STATE_ADMIN_ADDING_CATEGORY_NAME', 'state_admin_adding_category_name');
 define('STATE_ADMIN_EDITING_CATEGORY_NAME', 'state_admin_editing_category_name');
 define('STATE_ADMIN_MANUAL_SEND_SESSION', 'admin_manual_send_session'); // New state for admin sending manual product info
+define('STATE_AWAITING_COUPON_CODE', 'awaiting_coupon_code'); // New state for user entering coupon
+
+// Coupon Management States (Admin)
+define('STATE_ADMIN_ADDING_COUPON_CODE', 'admin_adding_coupon_code');
+define('STATE_ADMIN_ADDING_COUPON_DESCRIPTION', 'admin_adding_coupon_description');
+define('STATE_ADMIN_ADDING_COUPON_TYPE', 'admin_adding_coupon_type');
+define('STATE_ADMIN_ADDING_COUPON_VALUE', 'admin_adding_coupon_value');
+define('STATE_ADMIN_ADDING_COUPON_EXPIRY', 'admin_adding_coupon_expiry');
+define('STATE_ADMIN_ADDING_COUPON_MAX_USES', 'admin_adding_coupon_max_uses');
+define('STATE_ADMIN_ADDING_COUPON_PER_USER_LIMIT', 'admin_adding_coupon_per_user_limit');
+define('STATE_ADMIN_ADDING_COUPON_MIN_PURCHASE', 'admin_adding_coupon_min_purchase');
+define('STATE_ADMIN_ADDING_COUPON_APPLICABLE_CATEGORIES', 'admin_adding_coupon_applicable_categories');
+define('STATE_ADMIN_ADDING_COUPON_APPLICABLE_PRODUCTS', 'admin_adding_coupon_applicable_products');
 // Note: 'admin_adding_prod_info_prompt' was a transient state name used before setting 'admin_adding_prod_info', so not making it a global constant.
 
 // --- Callback Data Prefixes/Actions ---
@@ -76,6 +89,27 @@ define('CALLBACK_ADMIN_EDIT_CATEGORY_PROMPT_PREFIX', 'admin_edit_cat_prompt_');
 define('CALLBACK_ADMIN_REMOVE_CATEGORY_SELECT', 'admin_remove_category_select');
 define('CALLBACK_ADMIN_REMOVE_CATEGORY_CONFIRM_PREFIX', 'admin_rem_cat_conf_');
 define('CALLBACK_ADMIN_REMOVE_CATEGORY_DO_PREFIX', 'admin_rem_cat_do_');
+
+// Coupon Management Callbacks (Admin)
+define('CALLBACK_ADMIN_COUPON_MANAGEMENT', 'admin_coupon_management');
+define('CALLBACK_ADMIN_ADD_COUPON_PROMPT', 'admin_add_coupon_prompt'); // Starts the add coupon flow
+define('CALLBACK_ADMIN_LIST_COUPONS', 'admin_list_coupons');
+define('CALLBACK_ADMIN_DELETE_COUPON_SELECT', 'admin_delete_coupon_select');
+define('CALLBACK_ADMIN_DELETE_COUPON_CONFIRM_PREFIX', 'admin_del_coupon_conf_'); // e.g. admin_del_coupon_conf_COUPONCODE
+define('CALLBACK_ADMIN_SET_COUPON_TYPE_FIXED', 'admin_set_coupon_type_fixed');
+define('CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE', 'admin_set_coupon_type_percentage');
+define('CALLBACK_ADMIN_COUPON_SKIP_EXPIRY', 'admin_coupon_skip_expiry');
+define('CALLBACK_ADMIN_COUPON_SKIP_MAX_USES', 'admin_coupon_skip_max_uses');
+define('CALLBACK_ADMIN_COUPON_SKIP_PER_USER_LIMIT', 'admin_coupon_skip_per_user_limit');
+define('CALLBACK_ADMIN_COUPON_SKIP_MIN_PURCHASE', 'admin_coupon_skip_min_purchase');
+define('CALLBACK_ADMIN_COUPON_APPLICABLE_TO_ALL', 'admin_coupon_applicable_to_all');
+define('CALLBACK_ADMIN_COUPON_APPLICABLE_TO_CATS', 'admin_coupon_applicable_to_cats');
+define('CALLBACK_ADMIN_COUPON_APPLICABLE_TO_PRODS', 'admin_coupon_applicable_to_prods');
+define('CALLBACK_ADMIN_COUPON_SELECT_APPLICABLE_CAT_PREFIX', 'admin_coupon_sel_cat_');
+define('CALLBACK_ADMIN_COUPON_SELECT_APPLICABLE_PROD_PREFIX', 'admin_coupon_sel_prod_'); // Will need category context
+define('CALLBACK_ADMIN_COUPON_DONE_SELECTING_CATS', 'admin_coupon_done_cats');
+define('CALLBACK_ADMIN_COUPON_DONE_SELECTING_PRODS', 'admin_coupon_done_prods');
+
 
 // Payment Callbacks
 define('CALLBACK_ACCEPT_PAYMENT_PREFIX', 'accept_payment_');
