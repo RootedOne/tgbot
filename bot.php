@@ -499,11 +499,17 @@ if (isset($update->message)) {
                 if (isset($state['message_id'])) { editMessageReplyMarkup($chat_id, $state['message_id'], null); }
                 $product_name = $state['product_name'] ?? 'Unknown Product';
                 $price = $state['price'] ?? 'N/A';
+        $category_key = $state['category_key'] ?? 'unknown_category'; // Retrieve category_key
+        $product_id = $state['product_id'] ?? 'unknown_product';     // Retrieve product_id
+
                 $user_info = "🧾 New Payment Receipt\n\n▪️ **Product:** $product_name\n▪️ **Price:** $$price\n\n👤 **From User:**\nName: " . htmlspecialchars(($message->from->first_name ?? '') . " " . ($message->from->last_name ?? '')) . "\nUsername: @" . ($message->from->username ?? 'N/A') . "\nID: `$user_id`";
                 $photo_file_id = $message->photo[count($message->photo) - 1]->file_id;
-                forwardPhotoToAdmin($photo_file_id, $user_info, $user_id); 
+
+        // Pass category_key and product_id to forwardPhotoToAdmin
+        forwardPhotoToAdmin($photo_file_id, $user_info, $user_id, $category_key, $product_id);
+
                 sendMessage($chat_id, "✅ Thank you! Your receipt has been submitted and is now under review.");
-                 clearUserState($user_id); 
+        clearUserState($user_id);
             } else {
                 sendMessage($chat_id, "I've received your photo, but I wasn't expecting one. If you need help, please use the Support button.");
             }

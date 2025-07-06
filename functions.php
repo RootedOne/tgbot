@@ -199,13 +199,23 @@ function editMessageText($chat_id, $message_id, $text, $reply_markup = null, $pa
 function editMessageCaption($chat_id, $message_id, $caption, $reply_markup = null, $parse_mode = 'HTML') { bot('editMessageCaption', ['chat_id' => $chat_id, 'message_id' => $message_id, 'caption' => $caption, 'reply_markup' => $reply_markup, 'parse_mode' => $parse_mode]); }
 function editMessageReplyMarkup($chat_id, $message_id, $reply_markup = null) { bot('editMessageReplyMarkup', ['chat_id' => $chat_id, 'message_id' => $message_id, 'reply_markup' => $reply_markup]); }
 function answerCallbackQuery($callback_query_id) { bot('answerCallbackQuery', ['callback_query_id' => $callback_query_id]); }
-function forwardPhotoToAdmin($file_id, $caption, $original_user_id) {
+// Modify function signature to accept category_key and product_id
+function forwardPhotoToAdmin($file_id, $caption, $original_user_id, $category_key, $product_id) {
     $admin_ids = getAdminIds();
     if(empty($admin_ids)) return;
     $admin_id = $admin_ids[0];
+
+    // Construct callback data with user_id, category_key, and product_id
+    // Ensure product_id does not contain underscores to simplify parsing later, or use a different delimiter.
+    // For now, assuming '_' is okay if parsing is careful.
+    // Format: PREFIX_USERID_CATKEY_PRODKEY (e.g., accept_payment_12345_ssh_plan_s1)
+    // Note: CALLBACK_ACCEPT_PAYMENT_PREFIX already ends with '_' (e.g., 'accept_payment_')
+    $accept_callback_data = CALLBACK_ACCEPT_PAYMENT_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
+    $reject_callback_data = CALLBACK_REJECT_PAYMENT_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
+
     $approval_keyboard = json_encode(['inline_keyboard' => [
-        [['text' => "✅ Accept", 'callback_data' => CALLBACK_ACCEPT_PAYMENT_PREFIX . $original_user_id],
-         ['text' => "❌ Reject", 'callback_data' => CALLBACK_REJECT_PAYMENT_PREFIX . $original_user_id]]
+        [['text' => "✅ Accept", 'callback_data' => $accept_callback_data],
+         ['text' => "❌ Reject", 'callback_data' => $reject_callback_data]]
     ]]);
     bot('sendPhoto', ['chat_id' => $admin_id, 'photo' => $file_id, 'caption' => $caption, 'parse_mode' => 'Markdown', 'reply_markup' => $approval_keyboard]);
 }
@@ -531,7 +541,13 @@ function processCallbackQuery($callback_query) {
             global $products;
             if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
 
-            foreach (array_keys($products) as $known_cat_key) {
+            // Get category keys and sort them by length, descending to match longest possible key first
+            $category_keys_from_file = array_keys($products);
+            usort($category_keys_from_file, function($a, $b) {
+                return strlen($b) - strlen($a); // Sort by length descending
+            });
+
+            foreach ($category_keys_from_file as $known_cat_key) { // Iterate through sorted keys
                 if (strpos($ids_str, $known_cat_key . '_') === 0) {
                     $category_key = $known_cat_key;
                     $product_id = substr($ids_str, strlen($known_cat_key) + 1);
@@ -540,15 +556,25 @@ function processCallbackQuery($callback_query) {
             }
 
             if (!$category_key || !$product_id) {
-                error_log("EP_SPRO: Failed to parse category/product from data: {$data}. Derived ids_str: {$ids_str}");
+                error_log("EP_SPRO_PARSE_FAIL: Failed to parse category/product from data: {$data}. Derived ids_str: {$ids_str}. Products keys evaluated: " . implode(", ", array_keys($products)));
                 editMessageText($chat_id, $message_id, "Error: Could not determine product from callback data. Invalid format.", json_encode(['inline_keyboard'=>[[['text'=>'« Back', 'callback_data'=>CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
                 return;
             }
 
+            error_log("EP_SPRO_PRE_GET: Attempting getProductDetails with Category: '{$category_key}', ProductID: '{$product_id}' from Data: {$data}");
+
             $p = getProductDetails($category_key, $product_id);
             if (!$p) {
-                error_log("EP_SPRO: Product not found. Data: {$data}, Parsed Category: {$category_key}, Parsed ProductID: {$product_id}");
-                $error_kb = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $category_key]]]]);
+                error_log("EP_SPRO_NOT_FOUND: Product not found. Data: {$data}, Parsed Category: {$category_key}, Parsed ProductID: {$product_id}");
+                // Construct a safe fallback category key for the error keyboard, in case $category_key itself is problematic.
+                // However, if parsing failed, we'd return above. If it succeeded, $category_key should be valid from $products.
+                $callback_cat_key_for_error_kb = $category_key;
+                if (!isset($products[$category_key])) { // If somehow the parsed category_key isn't in products, don't use it for callback
+                    // This case should ideally be caught by !$category_key check, but as a safeguard:
+                    $callback_cat_key_for_error_kb = CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY; // Go way back
+                     error_log("EP_SPRO_NOT_FOUND_INVALID_CAT_FOR_KB: Parsed category '{$category_key}' not in products. Using generic callback.");
+                }
+                $error_kb = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $callback_cat_key_for_error_kb]]]]);
                 editMessageText($chat_id, $message_id, "Error: Product '" . htmlspecialchars($product_id) . "' in category '" . htmlspecialchars($category_key) . "' not found. It might have been removed or the ID is incorrect.", $error_kb);
                 return;
             }
@@ -871,33 +897,85 @@ function processCallbackQuery($callback_query) {
             error_log("PAY_CONF: Access denied. User {$user_id} is not admin.");
             return;
         }
+
         $is_accept_payment = strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) === 0;
-        $target_user_id_payment = substr($data, strlen($is_accept_payment ? CALLBACK_ACCEPT_PAYMENT_PREFIX : CALLBACK_REJECT_PAYMENT_PREFIX));
-        error_log("PAY_CONF: TargetUserID: '" . $target_user_id_payment . "', Action: " . ($is_accept_payment ? "Accept" : "Reject"));
+        $prefix_to_remove = $is_accept_payment ? CALLBACK_ACCEPT_PAYMENT_PREFIX : CALLBACK_REJECT_PAYMENT_PREFIX;
+        $payload = substr($data, strlen($prefix_to_remove)); // USERID_CATKEY_PRODKEY
+
+        // Parse USERID, CATKEY, PRODKEY from payload
+        $target_user_id_payment = null;
+        $category_key_payment = null;
+        $product_id_payment = null;
+
+        $first_underscore_pos = strpos($payload, '_');
+        if ($first_underscore_pos === false) {
+            error_log("PAY_CONF: Invalid payload format. Could not find first underscore in '{$payload}'. Full data: '{$data}'");
+            editMessageCaption($chat_id, $message_id, ($callback_query->message->caption ?? '') . "\n\n⚠️ ERROR: Could not parse payment confirmation data. Please handle manually.", null, 'Markdown');
+            return;
+        }
+        $target_user_id_payment = substr($payload, 0, $first_underscore_pos);
+        $rest_of_payload = substr($payload, $first_underscore_pos + 1); // CATKEY_PRODKEY
+
+        $last_underscore_pos = strrpos($rest_of_payload, '_');
+        if ($last_underscore_pos === false) {
+            error_log("PAY_CONF: Invalid payload format. Could not find last underscore in '{$rest_of_payload}'. Full data: '{$data}'");
+            editMessageCaption($chat_id, $message_id, ($callback_query->message->caption ?? '') . "\n\n⚠️ ERROR: Could not parse product details from payment confirmation. Please handle manually.", null, 'Markdown');
+            return;
+        }
+        $category_key_payment = substr($rest_of_payload, 0, $last_underscore_pos);
+        $product_id_payment = substr($rest_of_payload, $last_underscore_pos + 1);
+
+        if (!is_numeric($target_user_id_payment) || empty($category_key_payment) || empty($product_id_payment)) {
+            error_log("PAY_CONF: Parsed components are invalid. UserID: '{$target_user_id_payment}', CatKey: '{$category_key_payment}', ProdID: '{$product_id_payment}'. Full data: '{$data}'");
+            editMessageCaption($chat_id, $message_id, ($callback_query->message->caption ?? '') . "\n\n⚠️ ERROR: Invalid parsed details for payment confirmation. Please handle manually.", null, 'Markdown');
+            return;
+        }
+
+        error_log("PAY_CONF: TargetUserID: '{$target_user_id_payment}', Category: '{$category_key_payment}', ProductID: '{$product_id_payment}', Action: " . ($is_accept_payment ? "Accept" : "Reject"));
 
         $original_caption_payment = $callback_query->message->caption ?? '';
-        $product_name_from_receipt = "Unknown Product (from receipt)";
-        $price_from_receipt = "N/A";
-
-        if(preg_match("/▪️ \*\*Product:\*\* (.*?)\n/", $original_caption_payment, $cap_matches_name_pay)){ $product_name_from_receipt = trim($cap_matches_name_pay[1]); }
-        if(preg_match("/▪️ \*\*Price:\*\* \$(.*?)\n/", $original_caption_payment, $cap_matches_price_pay)){ $price_from_receipt = trim($cap_matches_price_pay[1]); }
-        error_log("PAY_CONF: Parsed from caption - Product: {$product_name_from_receipt}, Price: {$price_from_receipt}");
+        // Get product name from stored details, not just receipt, for accuracy.
+        $product_details_for_msg = getProductDetails($category_key_payment, $product_id_payment);
+        $product_name_for_msg = $product_details_for_msg ? $product_details_for_msg['name'] : "Unknown Product (ID: {$product_id_payment})";
+        // Price is also in $product_details_for_msg['price'] if needed.
 
         if ($is_accept_payment) {
-            error_log("PAY_CONF: Attempting to record purchase for " . $target_user_id_payment);
-            recordPurchase($target_user_id_payment, $product_name_from_receipt, $price_from_receipt);
+            recordPurchase($target_user_id_payment, $product_name_for_msg, $product_details_for_msg['price'] ?? 'N/A');
+            $admin_message_suffix = "\n\n✅ PAYMENT ACCEPTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").";
+            $user_message = "✅ Great news! Your payment for '<b>".htmlspecialchars($product_name_for_msg)."</b>' has been accepted.";
 
-            error_log("PAY_CONF: Attempting to edit message caption. ChatID: {$chat_id}, MessageID: {$message_id}");
-            editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n✅ PAYMENT ACCEPTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").", null, 'Markdown');
+            if ($product_details_for_msg) {
+                if (($product_details_for_msg['type'] ?? 'manual') === 'instant') {
+                    error_log("PAY_CONF: Product '{$category_key_payment}_{$product_id_payment}' is INSTANT. Attempting to deliver.");
+                    $item_to_deliver = getAndRemoveInstantProductItem($category_key_payment, $product_id_payment);
+                    if ($item_to_deliver !== null) {
+                        $user_message .= "\n\nHere is your item:\n<code>" . htmlspecialchars($item_to_deliver) . "</code>";
+                        $admin_message_suffix .= "\n✅ Instant item delivered to user.";
+                        error_log("PAY_CONF: Instant item '{$item_to_deliver}' delivered for {$category_key_payment}_{$product_id_payment} to user {$target_user_id_payment}.");
+                    } else {
+                        $user_message .= "\n\n⚠️ Your product is ready, but we're currently out of stock for instant delivery. Please contact support, and we'll assist you shortly!";
+                        $admin_message_suffix .= "\n⚠️ INSTANT DELIVERY FAILED: Product '{$category_key_payment}_{$product_id_payment}' is OUT OF STOCK. User {$target_user_id_payment} notified to contact support. PLEASE HANDLE MANUALLY.";
+                        error_log("PAY_CONF: INSTANT DELIVERY FAILED (OUT OF STOCK) for {$category_key_payment}_{$product_id_payment} to user {$target_user_id_payment}.");
+                    }
+                } else { // Manual product
+                    $user_message .= "\nYour product will be delivered manually by an admin shortly. You can find it in 'My Products' once processed.";
+                    $admin_message_suffix .= "\nℹ️ This is a MANUAL delivery product. User notified.";
+                    error_log("PAY_CONF: Manual product '{$category_key_payment}_{$product_id_payment}'. User {$target_user_id_payment} notified for manual delivery.");
+                }
+            } else { // Product details not found - critical error
+                $user_message .= "\n\n⚠️ ERROR: We could not retrieve the details for your purchased product (ID: {$product_id_payment}). Please contact support immediately for assistance.";
+                $admin_message_suffix .= "\n\n🔥🔥 CRITICAL ERROR: Could not retrieve product details for '{$category_key_payment}_{$product_id_payment}' during payment acceptance. User {$target_user_id_payment} notified to contact support. PLEASE INVESTIGATE AND HANDLE MANUALLY.";
+                error_log("PAY_CONF: CRITICAL ERROR - Product details not found for {$category_key_payment}_{$product_id_payment} for user {$target_user_id_payment}.");
+            }
 
-            error_log("PAY_CONF: Attempting to send confirmation to user " . $target_user_id_payment);
-            sendMessage($target_user_id_payment, "✅ Great news! Your payment for '<b>".htmlspecialchars($product_name_from_receipt)."</b>' has been accepted. You can find your item in 'My Products'.");
-        } else {
-            error_log("PAY_CONF: Payment rejected. Attempting to edit message caption. ChatID: {$chat_id}, MessageID: {$message_id}");
-            editMessageCaption($chat_id, $message_id, $original_caption_payment . "\n\n❌ PAYMENT REJECTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").", null, 'Markdown');
+            editMessageCaption($chat_id, $message_id, $original_caption_payment . $admin_message_suffix, null, 'Markdown');
+            sendMessage($target_user_id_payment, $user_message);
 
-            error_log("PAY_CONF: Attempting to send rejection notification to user " . $target_user_id_payment);
-            sendMessage($target_user_id_payment, "⚠️ We regret to inform you that your payment for '<b>".htmlspecialchars($product_name_from_receipt)."</b>' has been rejected. If you believe this is an error, or for more details, please contact support by pressing the Support button.");
+        } else { // Payment Rejected
+            $admin_message_suffix = "\n\n❌ PAYMENT REJECTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").";
+            editMessageCaption($chat_id, $message_id, $original_caption_payment . $admin_message_suffix, null, 'Markdown');
+            sendMessage($target_user_id_payment, "⚠️ We regret to inform you that your payment for '<b>".htmlspecialchars($product_name_for_msg)."</b>' has been rejected. If you believe this is an error, or for more details, please contact support by pressing the Support button.");
+            error_log("PAY_CONF: Payment REJECTED for user {$target_user_id_payment} for product {$category_key_payment}_{$product_id_payment}.");
         }
     }
     elseif ($data === CALLBACK_BACK_TO_MAIN) {
