@@ -5,9 +5,6 @@
 // --- Bot Token ---
 define('API_TOKEN', '7191984881:AAH1BBX3S6SKNCKGkjKnKZj2OTto_bfg2ZI'); // Replace with your actual token
 
-// --- File Definitions ---
-define('COUPONS_FILE', 'coupons.json');
-
 // --- Admin Configuration ---
 // Admin list is now managed in bot_config_data.json
 
@@ -27,13 +24,6 @@ define('STATE_AWAITING_RECEIPT', 'awaiting_receipt');
 define('STATE_ADMIN_ADDING_CATEGORY_NAME', 'state_admin_adding_category_name');
 define('STATE_ADMIN_EDITING_CATEGORY_NAME', 'state_admin_editing_category_name');
 define('STATE_ADMIN_MANUAL_SEND_SESSION', 'admin_manual_send_session'); // New state for admin sending manual product info
-// Coupon adding states
-define('STATE_ADMIN_ADDING_COUPON_CODE', 'admin_adding_coupon_code');
-define('STATE_ADMIN_ADDING_COUPON_TYPE', 'admin_adding_coupon_type');
-define('STATE_ADMIN_ADDING_COUPON_VALUE', 'admin_adding_coupon_value');
-define('STATE_ADMIN_ADDING_COUPON_MAX_USES', 'admin_adding_coupon_max_uses');
-// User state for coupon application
-define('STATE_USER_ENTERING_COUPON', 'user_entering_coupon');
 // Note: 'admin_adding_prod_info_prompt' was a transient state name used before setting 'admin_adding_prod_info', so not making it a global constant.
 
 // --- Callback Data Prefixes/Actions ---
@@ -86,21 +76,6 @@ define('CALLBACK_ADMIN_EDIT_CATEGORY_PROMPT_PREFIX', 'admin_edit_cat_prompt_');
 define('CALLBACK_ADMIN_REMOVE_CATEGORY_SELECT', 'admin_remove_category_select');
 define('CALLBACK_ADMIN_REMOVE_CATEGORY_CONFIRM_PREFIX', 'admin_rem_cat_conf_');
 define('CALLBACK_ADMIN_REMOVE_CATEGORY_DO_PREFIX', 'admin_rem_cat_do_');
-
-// Coupon Management Callbacks (Admin)
-define('CALLBACK_ADMIN_COUPON_MANAGEMENT', 'admin_coupon_mgt');
-define('CALLBACK_ADMIN_ADD_COUPON_PROMPT', 'admin_add_coupon_prompt');
-// Define admin_set_coupon_type_percentage and admin_set_coupon_type_fixed later if they become distinct callback data
-// For now, they might be handled by text input or a generic type selection state.
-// Plan specifies buttons with 'admin_set_coupon_type_percentage' / 'admin_set_coupon_type_fixed' as callback_data.
-define('CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE', 'admin_set_coupon_type_percentage');
-define('CALLBACK_ADMIN_SET_COUPON_TYPE_FIXED', 'admin_set_coupon_type_fixed');
-define('CALLBACK_ADMIN_CANCEL_COUPON_CREATION', 'admin_cancel_coupon');
-
-// User Coupon Application Callbacks
-define('CALLBACK_APPLY_COUPON_PREFIX', 'apply_coupon_');
-define('CALLBACK_REMOVE_COUPON_PREFIX', 'remove_coupon_');
-
 
 // Payment Callbacks
 define('CALLBACK_ACCEPT_PAYMENT_PREFIX', 'accept_payment_');

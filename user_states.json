@@ -1,11 +1,10 @@
 {
     "2045651875": {
-        "status": "admin_adding_prod_info",
+        "status": "awaiting_receipt",
+        "message_id": 3043,
+        "product_name": "فمیلی یک ماهه",
+        "price": "120",
         "category_key": "spotify_plan",
-        "original_message_id": 4339,
-        "new_product_name": "Venus",
-        "new_product_type": "manual",
-        "new_product_price": "86666",
-        "new_product_info": "Bhgffvgbg g r b h br. Rvrg reg r rv r ge a"
+        "product_id": "f1"
     }
 }
