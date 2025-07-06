@@ -23,6 +23,7 @@ define('STATE_AWAITING_RECEIPT', 'awaiting_receipt');
 // New states for category management
 define('STATE_ADMIN_ADDING_CATEGORY_NAME', 'state_admin_adding_category_name');
 define('STATE_ADMIN_EDITING_CATEGORY_NAME', 'state_admin_editing_category_name');
+define('STATE_ADMIN_MANUAL_SEND_SESSION', 'admin_manual_send_session'); // New state for admin sending manual product info
 // Note: 'admin_adding_prod_info_prompt' was a transient state name used before setting 'admin_adding_prod_info', so not making it a global constant.
 
 // --- Callback Data Prefixes/Actions ---
@@ -79,6 +80,7 @@ define('CALLBACK_ADMIN_REMOVE_CATEGORY_DO_PREFIX', 'admin_rem_cat_do_');
 // Payment Callbacks
 define('CALLBACK_ACCEPT_PAYMENT_PREFIX', 'accept_payment_');
 define('CALLBACK_REJECT_PAYMENT_PREFIX', 'reject_payment_');
+define('CALLBACK_ACCEPT_AND_SEND_PREFIX', 'accept_send_'); // New callback for manual product accept & send flow
 
 // Product Purchase Callbacks (Main Menu initiated) - These are now replaced by dynamic menu view_category_...
 // define('CALLBACK_BUY_SPOTIFY', 'buy_spotify');

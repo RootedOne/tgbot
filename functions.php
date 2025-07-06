@@ -63,7 +63,14 @@ function recordPurchase($user_id, $product_name, $price, $delivered_item_content
         $purchases[$user_id] = [];
     }
     $purchases[$user_id][] = $new_purchase;
-    if(!writeJsonFile(USER_PURCHASES_FILE, $purchases)){error_log("Failed to record purchase for user {$user_id}");}
+    $new_purchase_index = count($purchases[$user_id]) - 1; // Index of the item just added
+
+    if(writeJsonFile(USER_PURCHASES_FILE, $purchases)){
+        return $new_purchase_index;
+    } else {
+        error_log("Failed to record purchase for user {$user_id}");
+        return false;
+    }
 }
 function getProductDetails($category_key, $product_id) { global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } return $products[$category_key][$product_id] ?? null; }
 function updateProductDetails($category_key, $product_id, $details) {
@@ -220,16 +227,23 @@ function forwardPhotoToAdmin($file_id, $caption, $original_user_id, $category_ke
     if(empty($admin_ids)) return;
     $admin_id = $admin_ids[0];
 
-    // Construct callback data with user_id, category_key, and product_id
-    // Ensure product_id does not contain underscores to simplify parsing later, or use a different delimiter.
-    // For now, assuming '_' is okay if parsing is careful.
-    // Format: PREFIX_USERID_CATKEY_PRODKEY (e.g., accept_payment_12345_ssh_plan_s1)
-    // Note: CALLBACK_ACCEPT_PAYMENT_PREFIX already ends with '_' (e.g., 'accept_payment_')
-    $accept_callback_data = CALLBACK_ACCEPT_PAYMENT_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
+    $product_details = getProductDetails($category_key, $product_id);
+    $product_type = $product_details['type'] ?? 'manual'; // Default to manual if type not set
+
+    $accept_button_text = "✅ Accept";
+    $accept_button_callback_data = CALLBACK_ACCEPT_PAYMENT_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
+
+    if ($product_type === 'manual') {
+        $accept_button_text = "✅ Accept & Send";
+        $accept_button_callback_data = CALLBACK_ACCEPT_AND_SEND_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
+    }
+
+    // Reject button callback data remains the same, but needs all identifiers for consistency if rejection logic ever needs them.
+    // The previous implementation already included category_key and product_id in reject_callback_data.
     $reject_callback_data = CALLBACK_REJECT_PAYMENT_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
 
     $approval_keyboard = json_encode(['inline_keyboard' => [
-        [['text' => "✅ Accept", 'callback_data' => $accept_callback_data],
+        [['text' => $accept_button_text, 'callback_data' => $accept_button_callback_data],
          ['text' => "❌ Reject", 'callback_data' => $reject_callback_data]]
     ]]);
     bot('sendPhoto', ['chat_id' => $admin_id, 'photo' => $file_id, 'caption' => $caption, 'parse_mode' => 'Markdown', 'reply_markup' => $approval_keyboard]);
@@ -1063,6 +1077,81 @@ function processCallbackQuery($callback_query) {
             sendMessage($target_user_id_payment, "⚠️ We regret to inform you that your payment for '<b>".htmlspecialchars($product_name_for_msg)."</b>' has been rejected. If you believe this is an error, or for more details, please contact support by pressing the Support button.");
             error_log("PAY_CONF: Payment REJECTED for user {$target_user_id_payment} for product {$category_key_payment}_{$product_id_payment}.");
         }
+    }
+    elseif (strpos($data, CALLBACK_ACCEPT_AND_SEND_PREFIX) === 0) {
+        answerCallbackQuery($callback_query->id);
+        if(!$is_admin) {
+            sendMessage($chat_id, "Access denied for payment processing and sending.");
+            error_log("ACCEPT_SEND_CONF: Access denied. User {$user_id} is not admin.");
+            return;
+        }
+
+        $payload = substr($data, strlen(CALLBACK_ACCEPT_AND_SEND_PREFIX)); // USERID_CATKEY_PRODKEY
+        // Parse USERID, CATKEY, PRODKEY from payload (same parsing as CALLBACK_ACCEPT_PAYMENT_PREFIX)
+        $target_user_id_send = null; $category_key_send = null; $product_id_send = null;
+        $first_underscore_pos_send = strpos($payload, '_');
+        if ($first_underscore_pos_send === false) { /* error handling */ return; }
+        $target_user_id_send = substr($payload, 0, $first_underscore_pos_send);
+        $rest_of_payload_send = substr($payload, $first_underscore_pos_send + 1);
+        $last_underscore_pos_send = strrpos($rest_of_payload_send, '_');
+        if ($last_underscore_pos_send === false) { /* error handling */ return; }
+        $category_key_send = substr($rest_of_payload_send, 0, $last_underscore_pos_send);
+        $product_id_send = substr($rest_of_payload_send, $last_underscore_pos_send + 1);
+
+        if (!is_numeric($target_user_id_send) || empty($category_key_send) || empty($product_id_send)) {
+            error_log("ACCEPT_SEND_CONF: Parsed components are invalid. UserID: '{$target_user_id_send}', CatKey: '{$category_key_send}', ProdID: '{$product_id_send}'. Full data: '{$data}'");
+            editMessageCaption($chat_id, $message_id, ($callback_query->message->caption ?? '') . "\n\n⚠️ ERROR: Invalid parsed details for accept & send. Please handle manually.", null, 'Markdown');
+            return;
+        }
+
+        $product_details_send = getProductDetails($category_key_send, $product_id_send);
+        if (!$product_details_send) {
+            error_log("ACCEPT_SEND_CONF: Product not found {$category_key_send}_{$product_id_send}. Data: {$data}");
+            editMessageCaption($chat_id, $message_id, ($callback_query->message->caption ?? '') . "\n\n⚠️ ERROR: Product details not found for accept & send. Please handle manually.", null, 'Markdown');
+            return;
+        }
+        $product_name_send = $product_details_send['name'];
+        $product_price_send = $product_details_send['price'] ?? 'N/A';
+
+        // Record the purchase, initially with null delivered_item_content
+        $purchase_index = recordPurchase($target_user_id_send, $product_name_send, $product_price_send, null);
+
+        if ($purchase_index === false) {
+            error_log("ACCEPT_SEND_CONF: Failed to record purchase for {$category_key_send}_{$product_id_send} for user {$target_user_id_send}.");
+            editMessageCaption($chat_id, $message_id, ($callback_query->message->caption ?? '') . "\n\n⚠️ ERROR: Failed to record purchase during accept & send. Please handle manually.", null, 'Markdown');
+            return;
+        }
+
+        // Notify the user
+        sendMessage($target_user_id_send, "✅ Your payment for '<b>".htmlspecialchars($product_name_send)."</b>' has been accepted. An admin will contact you shortly with the product details.");
+
+        // Set admin state for manual send session
+        setUserState($user_id, [ // $user_id is the admin's ID
+            'status' => STATE_ADMIN_MANUAL_SEND_SESSION,
+            'target_user_id' => $target_user_id_send,
+            'purchase_category' => $category_key_send,
+            'purchase_product_id' => $product_id_send,
+            'purchase_index' => $purchase_index, // Store the index of the purchase
+            'original_admin_msg_id' => $message_id // ID of the message with the "Accept & Send" button
+        ]);
+
+        // Also set a state for the target user to know they are in a session
+        setUserState($target_user_id_send, [
+            'status' => 'in_manual_send_session_with_admin', // Define this if needed, or use a flag
+            'admin_id' => $user_id
+        ]);
+
+
+        // Edit the admin's original message (receipt photo caption)
+        $admin_caption_update = ($callback_query->message->caption ?? '') . "\n\n✅ Payment accepted for ".htmlspecialchars($product_name_send).". You are now in a direct send session with User ID: {$target_user_id_send}.";
+        editMessageCaption($chat_id, $message_id, $admin_caption_update, null, 'Markdown'); // Remove buttons by passing null markup
+
+        // Send a new instructional message to the admin in their chat with the bot
+        sendMessage($chat_id, "➡️ You are now live with User ID: <b>{$target_user_id_send}</b> to deliver '<b>".htmlspecialchars($product_name_send)."</b>'.\n\nReply to your own message with <code>/save</code> to store its content as the delivered item. Type <code>/end</code> when finished.", null, "HTML");
+
+        // Send an initial message to the target user
+        sendMessage($target_user_id_send, "An admin is now connected to provide details for your purchase: '<b>".htmlspecialchars($product_name_send)."</b>'. Please wait for their message.");
+        error_log("ACCEPT_SEND_CONF: Admin {$user_id} started manual send session with user {$target_user_id_send} for product {$category_key_send}_{$product_id_send}, purchase index {$purchase_index}.");
     }
     elseif ($data === CALLBACK_BACK_TO_MAIN) {
         clearUserState($user_id);
