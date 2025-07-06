@@ -93,6 +93,8 @@ define('CALLBACK_ACCEPT_AND_SEND_PREFIX', 'accept_send_'); // New callback for m
 // So, not defining specific constants for "spotify_plan_PRODUCTID" but acknowledging the pattern.
 define('CALLBACK_CONFIRM_BUY_PREFIX', 'confirm_buy_'); // confirm_buy_CATEGORY_PRODUCTID
 define('CALLBACK_VIEW_PURCHASED_ITEM_PREFIX', 'v_p_i_'); // view_purchased_item_USERID_PURCHASEINDEX
+define('CALLBACK_COPY_CARD_NUMBER', 'copy_card_num');
+define('CALLBACK_COPY_PRICE_PREFIX', 'copy_price_');
 
 
 // --- Main Menu Keyboard ---
