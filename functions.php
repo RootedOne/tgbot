@@ -406,50 +406,6 @@ function processCallbackQuery($callback_query) {
 
         editMessageText($chat_id, $message_id, $text_to_display, $keyboard_markup, 'HTML');
     }
-    elseif ($data === CALLBACK_COPY_CARD_NUMBER) {
-        $payment_details = getPaymentDetails();
-        $card_number_to_copy = $payment_details['card_number'] ?? 'Card number not set.';
-
-        bot('answerCallbackQuery', [
-            'callback_query_id' => $callback_query->id,
-            'text' => $card_number_to_copy, // Text to show in the alert
-            'show_alert' => true
-        ]);
-    }
-    elseif (strpos($data, CALLBACK_COPY_PRICE_PREFIX) === 0) {
-        $payload = substr($data, strlen(CALLBACK_COPY_PRICE_PREFIX)); // Expected: CATEGORYKEY_PRODUCTID
-
-        // Parse category_key and product_id from payload
-        // This parsing logic should be robust, similar to other handlers.
-        // Find the last underscore to separate product_id.
-        $category_key_copy = null;
-        $product_id_copy = null;
-        $last_underscore_pos_copy = strrpos($payload, '_');
-
-        if ($last_underscore_pos_copy !== false) {
-            $category_key_copy = substr($payload, 0, $last_underscore_pos_copy);
-            $product_id_copy = substr($payload, $last_underscore_pos_copy + 1);
-        }
-
-        $price_to_copy = "Error: Price not found."; // Default error message
-
-        if ($category_key_copy && $product_id_copy) {
-            $product_details_for_price = getProductDetails($category_key_copy, $product_id_copy);
-            if ($product_details_for_price && isset($product_details_for_price['price'])) {
-                $price_to_copy = (string)$product_details_for_price['price']; // Ensure it's a string for the alert
-            } else {
-                error_log("COPY_PRICE: Product or price not found. Cat: {$category_key_copy}, Prod: {$product_id_copy}, Data: {$data}");
-            }
-        } else {
-            error_log("COPY_PRICE: Failed to parse category/product from data: {$data}. Payload: {$payload}");
-        }
-
-        bot('answerCallbackQuery', [
-            'callback_query_id' => $callback_query->id,
-            'text' => $price_to_copy, // Text to show in the alert (price or error)
-            'show_alert' => true
-        ]);
-    }
     elseif ($data === CALLBACK_SUPPORT) {
         setUserState($user_id, ['status' => STATE_AWAITING_SUPPORT_MESSAGE, 'message_id' => $message_id]);
         $support_text = "❓Please describe your issue or question below.\nYour message will be forwarded to the admin team.\n\nType /cancel to abort sending a message.";
@@ -971,9 +927,7 @@ function processCallbackQuery($callback_query) {
         (strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) !== 0) &&
         (strpos($data, CALLBACK_REJECT_PAYMENT_PREFIX) !== 0) &&
         (strpos($data, CALLBACK_ACCEPT_AND_SEND_PREFIX) !== 0) &&
-        (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) !== 0) &&
-        ($data !== CALLBACK_COPY_CARD_NUMBER) && // Exclude copy card number
-        (strpos($data, CALLBACK_COPY_PRICE_PREFIX) !== 0) // Exclude copy price prefix
+        (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) !== 0)
     ) {
         error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
         global $products; $products = readJsonFile(PRODUCTS_FILE);
@@ -1026,8 +980,12 @@ function processCallbackQuery($callback_query) {
             $text_buy_confirm .= "Card Holder: `".htmlspecialchars($paymentDets_buy['card_holder'])."`\n\n";
             $text_buy_confirm .= "After making the payment, please send a screenshot of the transaction receipt to this chat.\n\nType /cancel to cancel this purchase.";
 
-            $copy_card_button = ['text' => '📋 Copy Card Number', 'callback_data' => CALLBACK_COPY_CARD_NUMBER];
-            $copy_price_button = ['text' => '💲 Copy Price', 'callback_data' => CALLBACK_COPY_PRICE_PREFIX . $category_key_confirm_buy . "_" . $product_id_confirm_buy];
+            $payment_details_for_copy = getPaymentDetails();
+            $card_number_to_prefill = $payment_details_for_copy['card_number'] ?? 'Card number not set';
+            $price_to_prefill = (string)($product_to_buy['price'] ?? 'Price not set');
+
+            $copy_card_button = ['text' => '📋 Copy Card No.', 'switch_inline_query_current_chat' => $card_number_to_prefill];
+            $copy_price_button = ['text' => '💲 Copy Price', 'switch_inline_query_current_chat' => $price_to_prefill];
             $cancel_button = ['text' => '« Cancel Purchase', 'callback_data' => "{$category_key_confirm_buy}_{$product_id_confirm_buy}"];
 
             $kb_buy_confirm_array = [
