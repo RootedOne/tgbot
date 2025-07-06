@@ -988,7 +988,7 @@ function processCallbackQuery($callback_query) {
                 ]
             ];
             $kb_buy_confirm = json_encode($kb_buy_confirm_array);
-            editMessageText($chat_id, $message_id, $text_buy_confirm, $kb_buy_confirm, 'Markdown');
+            editMessageText($chat_id, $message_id, $text_buy_confirm, $kb_buy_confirm, 'HTML'); // Changed parse_mode to HTML
         } else {
             error_log("Confirm Buy: Product details not found. Cat:{$category_key_confirm_buy}, ProdID:{$product_id_confirm_buy}, Data: {$data}");
             editMessageText($chat_id, $message_id, "Error: The product you are trying to purchase could not be found. It might have been removed or updated. Please select again.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Main Menu', 'callback_data'=>CALLBACK_BACK_TO_MAIN]]]]));
