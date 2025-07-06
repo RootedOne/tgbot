@@ -90,6 +90,7 @@ define('CALLBACK_REJECT_PAYMENT_PREFIX', 'reject_payment_');
 // The callback then becomes CATEGORYKEY_PRODUCTID.
 // So, not defining specific constants for "spotify_plan_PRODUCTID" but acknowledging the pattern.
 define('CALLBACK_CONFIRM_BUY_PREFIX', 'confirm_buy_'); // confirm_buy_CATEGORY_PRODUCTID
+define('CALLBACK_VIEW_PURCHASED_ITEM_PREFIX', 'v_p_i_'); // view_purchased_item_USERID_PURCHASEINDEX
 
 
 // --- Main Menu Keyboard ---

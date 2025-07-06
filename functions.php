@@ -49,7 +49,22 @@ function unbanUser($user_id) { $user_data = getUserData($user_id); $user_data['i
 function addUserBalance($user_id, $amount) { if (!is_numeric($amount) || $amount < 0) return false; $user_data = getUserData($user_id); $user_data['balance'] = ($user_data['balance'] ?? 0) + (float)$amount; updateUserData($user_id, $user_data); return true; }
 
 // --- User Purchase and Product Functions ---
-function recordPurchase($user_id, $product_name, $price) { $purchases = readJsonFile(USER_PURCHASES_FILE); $new_purchase = ['product_name' => $product_name, 'price' => $price, 'date' => date('Y-m-d H:i:s')]; if (!isset($purchases[$user_id])) { $purchases[$user_id] = []; } $purchases[$user_id][] = $new_purchase; if(!writeJsonFile(USER_PURCHASES_FILE, $purchases)){error_log("Failed to record purchase for user {$user_id}");} }
+function recordPurchase($user_id, $product_name, $price, $delivered_item_content = null) {
+    $purchases = readJsonFile(USER_PURCHASES_FILE);
+    $new_purchase = [
+        'product_name' => $product_name,
+        'price' => $price,
+        'date' => date('Y-m-d H:i:s')
+    ];
+    if ($delivered_item_content !== null) {
+        $new_purchase['delivered_item_content'] = $delivered_item_content;
+    }
+    if (!isset($purchases[$user_id])) {
+        $purchases[$user_id] = [];
+    }
+    $purchases[$user_id][] = $new_purchase;
+    if(!writeJsonFile(USER_PURCHASES_FILE, $purchases)){error_log("Failed to record purchase for user {$user_id}");}
+}
 function getProductDetails($category_key, $product_id) { global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } return $products[$category_key][$product_id] ?? null; }
 function updateProductDetails($category_key, $product_id, $details) {
     global $products;
@@ -293,23 +308,103 @@ function processCallbackQuery($callback_query) {
     }
 
     elseif ($data === CALLBACK_MY_PRODUCTS) {
-        $purchases = readJsonFile(USER_PURCHASES_FILE);
-        $user_purchases = $purchases[$user_id] ?? [];
-        if (empty($user_purchases)) { $text = "You have no products yet."; }
-        else {
-            $text = "<b>🛍️ Your Products:</b>\n\n";
-            foreach ($user_purchases as $purchase) {
-                $product_name = htmlspecialchars($purchase['product_name']);
-                $price_text = htmlspecialchars($purchase['price']);
-                $date = $purchase['date'];
-                $text .= "<b>Product:</b> {$product_name}\n";
-                if (is_numeric($purchase['price'])) { $text .= "<b>Price:</b> \${$price_text}\n"; }
-                else { $text .= "<b>Note:</b> {$price_text}\n"; }
-                $text .= "<b>Date:</b> {$date}\n\n";
+        $purchases_all_data = readJsonFile(USER_PURCHASES_FILE);
+        $user_purchases_array = $purchases_all_data[$user_id] ?? [];
+
+        $message_to_send = "<b>🛍️ Your Products:</b>\nClick on an item to view its details.";
+        $keyboard_button_rows = [];
+
+        if (empty($user_purchases_array)) {
+            $message_to_send = "You have no products yet.";
+        } else {
+            foreach ($user_purchases_array as $index => $purchase_item) {
+                $product_name_btn = htmlspecialchars($purchase_item['product_name']);
+                // Ensure date is valid before formatting, fallback if not
+                $purchase_date_str = $purchase_item['date'] ?? null;
+                $purchase_date_btn = 'Unknown Date';
+                if ($purchase_date_str && strtotime($purchase_date_str) !== false) {
+                    $purchase_date_btn = date('d M Y', strtotime($purchase_date_str));
+                }
+
+                $emoji_btn = (isset($purchase_item['delivered_item_content']) && trim($purchase_item['delivered_item_content']) !== '') ? "📦" : "📄";
+
+                $button_text_val = $emoji_btn . " " . $product_name_btn . " (" . $purchase_date_btn . ")";
+                $keyboard_button_rows[] = [['text' => $button_text_val, 'callback_data' => CALLBACK_VIEW_PURCHASED_ITEM_PREFIX . $user_id . "_" . $index]];
             }
         }
-        $keyboard = json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]);
-        editMessageText($chat_id, $message_id, $text, $keyboard, 'HTML');
+
+        $keyboard_button_rows[] = [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]];
+        $final_reply_markup = json_encode(['inline_keyboard' => $keyboard_button_rows]);
+
+        editMessageText($chat_id, $message_id, $message_to_send, $final_reply_markup, 'HTML');
+    }
+    elseif (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) === 0) {
+        answerCallbackQuery($callback_query->id); // Answer immediately
+
+        $payload = substr($data, strlen(CALLBACK_VIEW_PURCHASED_ITEM_PREFIX)); // Expected: USERID_PURCHASEINDEX
+        $parts = explode('_', $payload);
+
+        if (count($parts) === 2) {
+            $item_owner_id_from_cb = $parts[0]; // The user ID stored in the callback data
+            $purchase_index_from_cb = (int)$parts[1];
+
+            // Security check: Ensure the user interacting ($user_id) is the one whose item this is ($item_owner_id_from_cb)
+            if ((string)$user_id !== (string)$item_owner_id_from_cb) {
+                error_log("VIEW_ITEM_DENIED: User {$user_id} attempted to view item for user {$item_owner_id_from_cb}. Denied. Callback: {$data}");
+                // Optionally send a silent message or just log. For now, no message to user to avoid confusion.
+                // sendMessage($chat_id, "⚠️ Action not allowed.");
+                return; // Exit silently or with a generic error if preferred.
+            }
+
+            $all_purchases_data = readJsonFile(USER_PURCHASES_FILE);
+            $user_specific_purchases_list = $all_purchases_data[$item_owner_id_from_cb] ?? [];
+
+            if (isset($user_specific_purchases_list[$purchase_index_from_cb])) {
+                $purchase_to_display = $user_specific_purchases_list[$purchase_index_from_cb];
+
+                if (isset($purchase_to_display['delivered_item_content']) && trim($purchase_to_display['delivered_item_content']) !== '') {
+                    $content_msg = "<b>Item:</b> " . htmlspecialchars($purchase_to_display['product_name']) . "\n";
+                    $content_msg .= "<b>Purchased:</b> " . htmlspecialchars($purchase_to_display['date']) . "\n\n";
+                    $content_msg .= "<b>Your item details:</b>\n<code>" . htmlspecialchars($purchase_to_display['delivered_item_content']) . "</code>";
+
+                    // Send as a new message. User can then dismiss it.
+                    // The original "My Products" message remains, allowing them to view other items.
+                    sendMessage($chat_id, $content_msg, null, 'HTML');
+                } else {
+                    // No specific content to display, show general info (could be an alert for the user).
+                    $info_msg = "<b>Product:</b> " . htmlspecialchars($purchase_to_display['product_name']) . "\n";
+                    if (isset($purchase_to_display['price'])) { // Price might not always be set for manually added items if schema changes
+                         $info_msg .= "<b>Price:</b> $" . htmlspecialchars($purchase_to_display['price']) . "\n";
+                    }
+                    $info_msg .= "<b>Date:</b> " . htmlspecialchars($purchase_to_display['date']) . "\n\n";
+                    $info_msg .= "This item was delivered manually or does not have specific viewable content here.";
+                    // Using answerCallbackQuery with show_alert=true to show this as a pop-up.
+                    bot('answerCallbackQuery', [
+                        'callback_query_id' => $callback_query->id,
+                        'text' => $info_msg,
+                        'show_alert' => true,
+                        'parse_mode' => 'HTML' // Ensure parse_mode is supported if used in answerCallbackQuery text
+                    ]);
+                    // sendMessage($chat_id, $info_msg, null, 'HTML'); // Alternative: send as message
+                }
+            } else {
+                // Item not found at index, show alert
+                 bot('answerCallbackQuery', [
+                    'callback_query_id' => $callback_query->id,
+                    'text' => "⚠️ Could not find this purchased item. It might have been removed or there was an error.",
+                    'show_alert' => true
+                ]);
+                error_log("VIEW_ITEM_NOT_FOUND: Purchase item not found for user {$item_owner_id_from_cb} at index {$purchase_index_from_cb}. Callback: {$data}");
+            }
+        } else {
+            // Invalid callback data format
+            bot('answerCallbackQuery', [
+                'callback_query_id' => $callback_query->id,
+                'text' => "⚠️ Error retrieving item details due to invalid data format.",
+                'show_alert' => true
+            ]);
+            error_log("VIEW_ITEM_INVALID_FORMAT: Invalid data format for viewing purchased item. Callback: {$data}");
+        }
     }
     elseif ($data === CALLBACK_SUPPORT) {
         setUserState($user_id, ['status' => STATE_AWAITING_SUPPORT_MESSAGE, 'message_id' => $message_id]);
@@ -937,10 +1032,10 @@ function processCallbackQuery($callback_query) {
         // Get product name from stored details, not just receipt, for accuracy.
         $product_details_for_msg = getProductDetails($category_key_payment, $product_id_payment);
         $product_name_for_msg = $product_details_for_msg ? $product_details_for_msg['name'] : "Unknown Product (ID: {$product_id_payment})";
-        // Price is also in $product_details_for_msg['price'] if needed.
+        $product_price_for_msg = $product_details_for_msg ? ($product_details_for_msg['price'] ?? 'N/A') : 'N/A';
 
         if ($is_accept_payment) {
-            recordPurchase($target_user_id_payment, $product_name_for_msg, $product_details_for_msg['price'] ?? 'N/A');
+            $item_content_for_record = null; // Initialize content to be stored with purchase
             $admin_message_suffix = "\n\n✅ PAYMENT ACCEPTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").";
             $user_message = "✅ Great news! Your payment for '<b>".htmlspecialchars($product_name_for_msg)."</b>' has been accepted.";
 
@@ -949,10 +1044,12 @@ function processCallbackQuery($callback_query) {
                     error_log("PAY_CONF: Product '{$category_key_payment}_{$product_id_payment}' is INSTANT. Attempting to deliver.");
                     $item_to_deliver = getAndRemoveInstantProductItem($category_key_payment, $product_id_payment);
                     if ($item_to_deliver !== null) {
+                        $item_content_for_record = $item_to_deliver; // Set item to be stored
                         $user_message .= "\n\nHere is your item:\n<code>" . htmlspecialchars($item_to_deliver) . "</code>";
                         $admin_message_suffix .= "\n✅ Instant item delivered to user.";
                         error_log("PAY_CONF: Instant item '{$item_to_deliver}' delivered for {$category_key_payment}_{$product_id_payment} to user {$target_user_id_payment}.");
                     } else {
+                        // Out of stock
                         $user_message .= "\n\n⚠️ Your product is ready, but we're currently out of stock for instant delivery. Please contact support, and we'll assist you shortly!";
                         $admin_message_suffix .= "\n⚠️ INSTANT DELIVERY FAILED: Product '{$category_key_payment}_{$product_id_payment}' is OUT OF STOCK. User {$target_user_id_payment} notified to contact support. PLEASE HANDLE MANUALLY.";
                         error_log("PAY_CONF: INSTANT DELIVERY FAILED (OUT OF STOCK) for {$category_key_payment}_{$product_id_payment} to user {$target_user_id_payment}.");
@@ -967,6 +1064,9 @@ function processCallbackQuery($callback_query) {
                 $admin_message_suffix .= "\n\n🔥🔥 CRITICAL ERROR: Could not retrieve product details for '{$category_key_payment}_{$product_id_payment}' during payment acceptance. User {$target_user_id_payment} notified to contact support. PLEASE INVESTIGATE AND HANDLE MANUALLY.";
                 error_log("PAY_CONF: CRITICAL ERROR - Product details not found for {$category_key_payment}_{$product_id_payment} for user {$target_user_id_payment}.");
             }
+
+            // Call recordPurchase ONCE here, with all necessary info including potentially delivered item content
+            recordPurchase($target_user_id_payment, $product_name_for_msg, $product_price_for_msg, $item_content_for_record);
 
             editMessageCaption($chat_id, $message_id, $original_caption_payment . $admin_message_suffix, null, 'Markdown');
             sendMessage($target_user_id_payment, $user_message);
