@@ -105,9 +105,101 @@ if (isset($update->message)) {
         ])) {
             // ... (coupon adding logic as before, with cancel buttons now handled by callbacks) ...
              switch ($user_state['status']) {
-                case STATE_ADMIN_ADDING_COUPON_CODE: /* ... */ break;
-                case STATE_ADMIN_ADDING_COUPON_VALUE: /* ... */ break;
-                case STATE_ADMIN_ADDING_COUPON_MAX_USES: /* ... */ break;
+                case STATE_ADMIN_ADDING_COUPON_CODE:
+                    $potential_code = strtoupper(trim($text));
+                    if (empty($potential_code)) {
+                        sendMessage($chat_id, "Coupon code cannot be empty. Please enter a valid code.", json_encode(['inline_keyboard' => [[['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]]]));
+                        break;
+                    }
+                    if (getCouponByCode($potential_code) !== null) {
+                        sendMessage($chat_id, "⚠️ Coupon code '<b>".htmlspecialchars($potential_code)."</b>' already exists. Please enter a unique code.", json_encode(['inline_keyboard' => [[['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]]]), "HTML");
+                        break;
+                    }
+
+                    $user_state['coupon_data']['code'] = $potential_code;
+                    $user_state['status'] = STATE_ADMIN_ADDING_COUPON_TYPE;
+                    setUserState($user_id, $user_state);
+
+                    $type_keyboard = ['inline_keyboard' => [
+                        [['text' => 'Percentage (%)', 'callback_data' => CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE]],
+                        [['text' => 'Fixed Amount ($)', 'callback_data' => CALLBACK_ADMIN_SET_COUPON_TYPE_FIXED]],
+                        [['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]
+                    ]];
+                    // Edit the original prompt message to ask for type
+                    if (isset($user_state['original_message_id'])) {
+                        editMessageText($chat_id, $user_state['original_message_id'], "Coupon Code: <b>".htmlspecialchars($potential_code)."</b>\nSelect the discount type:", json_encode($type_keyboard), "HTML");
+                    } else { // Fallback if original_message_id wasn't set
+                        sendMessage($chat_id, "Coupon Code: <b>".htmlspecialchars($potential_code)."</b>\nSelect the discount type:", json_encode($type_keyboard), "HTML");
+                    }
+                    break;
+                case STATE_ADMIN_ADDING_COUPON_VALUE:
+                    if (!is_numeric($text) || floatval($text) <= 0) {
+                        sendMessage($chat_id, "Invalid value. Please enter a positive number for the discount value.", json_encode(['inline_keyboard' => [[['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]]]));
+                        break;
+                    }
+                    $value = floatval($text);
+                    $discount_type = $user_state['coupon_data']['discount_type'] ?? null;
+
+                    if ($discount_type === 'percentage' && ($value <= 0 || $value > 100)) {
+                        sendMessage($chat_id, "Invalid percentage. Please enter a number between 1 and 100.", json_encode(['inline_keyboard' => [[['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]]]));
+                        break;
+                    }
+                    // For fixed_amount, it's already checked for > 0. No upper limit unless specified.
+
+                    $user_state['coupon_data']['discount_value'] = $value;
+                    $user_state['status'] = STATE_ADMIN_ADDING_COUPON_MAX_USES;
+                    setUserState($user_id, $user_state);
+
+                    $prompt_max_uses_text = "Discount Value: " . ($discount_type === 'percentage' ? "{$value}%" : "\${$value}") . "\n";
+                    $prompt_max_uses_text .= "Enter the maximum number of uses for this coupon (e.g., 100). Enter 0 for unlimited uses.";
+
+                    if (isset($user_state['original_message_id'])) {
+                        editMessageText($chat_id, $user_state['original_message_id'], $prompt_max_uses_text, json_encode(['inline_keyboard' => [[['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]]]), "HTML");
+                    } else {
+                         sendMessage($chat_id, $prompt_max_uses_text, json_encode(['inline_keyboard' => [[['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]]]), "HTML");
+                    }
+                    break;
+                case STATE_ADMIN_ADDING_COUPON_MAX_USES:
+                    if (!is_numeric($text) || intval($text) < 0) {
+                        sendMessage($chat_id, "Invalid input. Please enter a non-negative integer for maximum uses (e.g., 0, 10, 100).", json_encode(['inline_keyboard' => [[['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]]]));
+                        break;
+                    }
+                    $max_uses = intval($text);
+                    $user_state['coupon_data']['max_uses'] = $max_uses;
+                    // Default values for new coupons
+                    $user_state['coupon_data']['uses_count'] = 0;
+                    $user_state['coupon_data']['is_active'] = true;
+                    $user_state['coupon_data']['created_at'] = date('Y-m-d H:i:s');
+
+
+                    if (addCoupon($user_state['coupon_data'])) {
+                        $success_msg = "✅ Coupon '<b>" . htmlspecialchars($user_state['coupon_data']['code']) . "</b>' added successfully!\n";
+                        $success_msg .= "Type: " . htmlspecialchars(ucfirst(str_replace('_', ' ', $user_state['coupon_data']['discount_type']))) . "\n";
+                        $success_msg .= "Value: " . ($user_state['coupon_data']['discount_type'] === 'percentage' ? $user_state['coupon_data']['discount_value'] . "%" : "$" . $user_state['coupon_data']['discount_value']) . "\n";
+                        $success_msg .= "Max Uses: " . ($max_uses == 0 ? "Unlimited" : $max_uses) . "\n";
+
+                        clearUserState($user_id);
+                        // Prepare Coupon Management Menu to display after adding
+                        $coupon_mgt_keyboard_after_add = [
+                            'inline_keyboard' => [
+                                [['text' => "➕ Add New Coupon", 'callback_data' => CALLBACK_ADMIN_ADD_COUPON_PROMPT]],
+                                // Future buttons for view/edit/stats
+                                [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                            ]
+                        ];
+                        if (isset($user_state['original_message_id'])) {
+                             editMessageText($chat_id, $user_state['original_message_id'], $success_msg . "\n🎫 Coupon Management 🎫", json_encode($coupon_mgt_keyboard_after_add), "HTML");
+                        } else {
+                            sendMessage($chat_id, $success_msg . "\n🎫 Coupon Management 🎫", json_encode($coupon_mgt_keyboard_after_add), "HTML");
+                        }
+                    } else {
+                        // This case should be rare if pre-check for code uniqueness is done.
+                        // Could be a file write issue or other unexpected problem in addCoupon.
+                        sendMessage($chat_id, "⚠️ An error occurred while trying to save the coupon. Please try again or check the logs.", json_encode(['inline_keyboard' => [[['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]]]));
+                        // Optionally, clear state or keep it for retry, for now, keeping state for potential retry.
+                        // clearUserState($user_id); // Or offer to go back to coupon management.
+                    }
+                    break;
             }
         }
         // Admin editing product field
