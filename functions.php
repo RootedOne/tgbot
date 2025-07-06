@@ -12,6 +12,7 @@ define('BOT_CONFIG_DATA_FILE', 'bot_config_data.json');
 // ===================================================================
 //  STATE & DATA MANAGEMENT FUNCTIONS
 // ===================================================================
+// --- Generic JSON Read/Write ---
 function readJsonFile($filename) { if (!file_exists($filename)) return []; $json = file_get_contents($filename); return json_decode($json, true) ?: []; }
 
 function writeJsonFile($filename, $data) {
@@ -28,6 +29,7 @@ function writeJsonFile($filename, $data) {
     return true;
 }
 
+// --- User State Functions ---
 function setUserState($user_id, $state) { $states = readJsonFile(STATE_FILE); $states[$user_id] = $state; if(!writeJsonFile(STATE_FILE, $states)) {error_log("Failed to write user state for {$user_id}");} }
 function getUserState($user_id) { $states = readJsonFile(STATE_FILE); return $states[$user_id] ?? null; }
 function clearUserState($user_id) { $states = readJsonFile(STATE_FILE); if (isset($states[$user_id])) { unset($states[$user_id]); if(!writeJsonFile(STATE_FILE, $states)){error_log("Failed to write user states after clearing for {$user_id}");}} }
@@ -49,26 +51,38 @@ function unbanUser($user_id) { $user_data = getUserData($user_id); $user_data['i
 function addUserBalance($user_id, $amount) { if (!is_numeric($amount) || $amount < 0) return false; $user_data = getUserData($user_id); $user_data['balance'] = ($user_data['balance'] ?? 0) + (float)$amount; updateUserData($user_id, $user_data); return true; }
 
 // --- User Purchase and Product Functions ---
-function recordPurchase($user_id, $product_name, $price, $delivered_item_content = null) {
+function recordPurchase($user_id, $product_name, $price, $delivered_item_content = null, $original_price = null, $coupon_code_used = null, $discount_amount_applied = null) {
     $purchases = readJsonFile(USER_PURCHASES_FILE);
     $new_purchase = [
         'product_name' => $product_name,
-        'price' => $price,
+        'price' => $price, // This is the final price paid
         'date' => date('Y-m-d H:i:s')
     ];
+
     if ($delivered_item_content !== null) {
         $new_purchase['delivered_item_content'] = $delivered_item_content;
     }
+
+    if ($coupon_code_used !== null) {
+        $new_purchase['original_price'] = $original_price ?? $price; // Fallback if original_price somehow not passed but coupon was
+        $new_purchase['coupon_code_used'] = $coupon_code_used;
+        $new_purchase['discount_applied'] = $discount_amount_applied ?? 0;
+    } elseif ($original_price !== null && $original_price != $price) {
+        // If no coupon code, but original price differs from final price (e.g. other types of adjustments if ever implemented)
+        $new_purchase['original_price'] = $original_price;
+    }
+
+
     if (!isset($purchases[$user_id])) {
         $purchases[$user_id] = [];
     }
     $purchases[$user_id][] = $new_purchase;
-    $new_purchase_index = count($purchases[$user_id]) - 1; // Index of the item just added
+    $new_purchase_index = count($purchases[$user_id]) - 1;
 
     if(writeJsonFile(USER_PURCHASES_FILE, $purchases)){
         return $new_purchase_index;
     } else {
-        error_log("Failed to record purchase for user {$user_id}");
+        error_log("Failed to record purchase for user {$user_id}. Data: " . print_r($new_purchase, true));
         return false;
     }
 }
@@ -121,7 +135,162 @@ function promptForProductType($chat_id, $admin_user_id, $category_key, $product_
     sendMessage($chat_id, "Product: '{$product_name_context}'.\nSelect delivery type:", json_encode($type_keyboard));
 }
 
-$products = readJsonFile(PRODUCTS_FILE);
+$products = readJsonFile(PRODUCTS_FILE); // Global products cache
+
+// --- Coupon Data Functions ---
+function readCouponsFile() {
+    return readJsonFile(COUPONS_FILE);
+}
+
+function writeCouponsFile($coupons_array) {
+    return writeJsonFile(COUPONS_FILE, $coupons_array);
+}
+
+function getCouponByCode($code_to_find) {
+    $coupons = readCouponsFile();
+    $code_to_find_upper = strtoupper(trim($code_to_find));
+    foreach ($coupons as $coupon) {
+        if (isset($coupon['code']) && strtoupper($coupon['code']) === $code_to_find_upper) {
+            return $coupon;
+        }
+    }
+    return null;
+}
+
+function addCoupon($coupon_data) {
+    if (!isset($coupon_data['code']) || empty(trim($coupon_data['code']))) {
+        error_log("addCoupon: Coupon code is missing or empty.");
+        return false;
+    }
+    $coupon_data['code'] = strtoupper(trim($coupon_data['code'])); // Ensure uppercase and trimmed
+
+    if (getCouponByCode($coupon_data['code']) !== null) {
+        error_log("addCoupon: Coupon code '{$coupon_data['code']}' already exists.");
+        return false; // Code already exists
+    }
+
+    // Validate required fields (basic validation for now)
+    if (!isset($coupon_data['discount_type']) || !in_array($coupon_data['discount_type'], ['percentage', 'fixed_amount'])) return false;
+    if (!isset($coupon_data['discount_value']) || !is_numeric($coupon_data['discount_value']) || $coupon_data['discount_value'] <= 0) return false;
+    if ($coupon_data['discount_type'] === 'percentage' && $coupon_data['discount_value'] > 100) return false; // Percentage cannot be > 100
+    if (!isset($coupon_data['max_uses']) || !is_numeric($coupon_data['max_uses']) || (int)$coupon_data['max_uses'] < 0) return false; // 0 for unlimited, or positive
+
+    $coupon_data['max_uses'] = (int)$coupon_data['max_uses'];
+    $coupon_data['uses_count'] = $coupon_data['uses_count'] ?? 0;
+    $coupon_data['is_active'] = $coupon_data['is_active'] ?? true;
+    $coupon_data['created_at'] = $coupon_data['created_at'] ?? date('Y-m-d H:i:s');
+
+
+    $coupons = readCouponsFile();
+    $coupons[] = $coupon_data;
+    return writeCouponsFile($coupons);
+}
+// --- End Coupon Data Functions ---
+
+// --- Coupon Validation and Application Logic ---
+function validateAndApplyCoupon($user_id, $coupon_code_text, $product_context_string) {
+    global $products;
+    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
+
+    $coupon_code_upper = strtoupper(trim($coupon_code_text));
+    $coupon = getCouponByCode($coupon_code_upper);
+
+    if (!$coupon) {
+        return ['success' => false, 'message' => "Coupon code '<b>".htmlspecialchars($coupon_code_upper)."</b>' not found."];
+    }
+    if (!$coupon['is_active']) {
+        return ['success' => false, 'message' => "Coupon '<b>".htmlspecialchars($coupon_code_upper)."</b>' is no longer active."];
+    }
+    if ($coupon['max_uses'] > 0 && $coupon['uses_count'] >= $coupon['max_uses']) {
+        return ['success' => false, 'message' => "Coupon '<b>".htmlspecialchars($coupon_code_upper)."</b>' has reached its maximum usage limit."];
+    }
+
+    $last_underscore = strrpos($product_context_string, '_');
+    if ($last_underscore === false) {
+        error_log("validateAndApplyCoupon: Invalid product_context_string '{$product_context_string}' for user {$user_id}");
+        return ['success' => false, 'message' => "Error applying coupon: Invalid product context."];
+    }
+    $category_key = substr($product_context_string, 0, $last_underscore);
+    $product_id = substr($product_context_string, $last_underscore + 1);
+
+    $product_details = getProductDetails($category_key, $product_id);
+    if (!$product_details || !isset($product_details['price'])) {
+        error_log("validateAndApplyCoupon: Product or price not found for context '{$product_context_string}' user {$user_id}");
+        return ['success' => false, 'message' => "Error applying coupon: Product details not found."];
+    }
+
+    $original_price = floatval($product_details['price']);
+    $discount_value_on_coupon = floatval($coupon['discount_value']); // The value stored on the coupon
+    $discount_amount_calculated = 0;
+    $final_price = $original_price;
+
+    if ($coupon['discount_type'] === 'percentage') {
+        $discount_amount_calculated = round(($original_price * $discount_value_on_coupon) / 100, 2);
+        $final_price = $original_price - $discount_amount_calculated;
+    } elseif ($coupon['discount_type'] === 'fixed_amount') {
+        $discount_amount_calculated = $discount_value_on_coupon;
+        $final_price = $original_price - $discount_amount_calculated;
+    } else {
+        error_log("validateAndApplyCoupon: Invalid discount_type '{$coupon['discount_type']}' for coupon {$coupon_code_upper}");
+        return ['success' => false, 'message' => "Invalid discount type for coupon '<b>".htmlspecialchars($coupon_code_upper)."</b>'."];
+    }
+
+    if ($final_price < 0) {
+        $discount_amount_calculated = $original_price; // Actual discount is capped at original price
+        $final_price = 0;
+    }
+
+    $coupon_application_details_for_state = [
+        'code' => $coupon_code_upper,
+        'discount_type' => $coupon['discount_type'],
+        'discount_value_on_coupon' => $discount_value_on_coupon,
+        'original_price' => $original_price,
+        'discount_amount_calculated' => $discount_amount_calculated,
+        'discounted_price' => $final_price // This is the final price to pay
+    ];
+
+    return [
+        'success' => true,
+        'message' => "Coupon '<b>".htmlspecialchars($coupon_code_upper)."</b>' applied successfully!",
+        'details' => $coupon_application_details_for_state
+    ];
+}
+// --- End Coupon Validation and Application Logic ---
+
+function incrementCouponUsage($coupon_code_to_update) {
+    $coupons = readCouponsFile();
+    $coupon_was_updated_in_file = false;
+    $code_upper = strtoupper(trim($coupon_code_to_update));
+
+    foreach ($coupons as $index => &$coupon_ref) { // Use reference to modify directly in array
+        if (isset($coupon_ref['code']) && strtoupper($coupon_ref['code']) === $code_upper) {
+            $coupon_ref['uses_count'] = (isset($coupon_ref['uses_count']) ? $coupon_ref['uses_count'] : 0) + 1;
+            if ($coupon_ref['max_uses'] > 0 && $coupon_ref['uses_count'] >= $coupon_ref['max_uses']) {
+                $coupon_ref['is_active'] = false;
+                error_log("COUPON_USAGE: Coupon {$code_upper} reached max uses ({$coupon_ref['uses_count']}/{$coupon_ref['max_uses']}) and was deactivated.");
+            }
+            $coupon_was_updated_in_file = true;
+            break;
+        }
+    }
+    unset($coupon_ref); // Important to unset reference after loop
+
+    if ($coupon_was_updated_in_file) {
+        if (writeCouponsFile($coupons)) {
+            error_log("COUPON_USAGE: Incremented usage for coupon {$code_upper}.");
+            return true;
+        } else {
+            error_log("COUPON_USAGE_ERROR: Failed to write coupons file after incrementing use for {$code_upper}.");
+            // This is problematic: usage was incremented in memory but not saved.
+            // A more robust system might revert the in-memory change or have a retry mechanism.
+            return false;
+        }
+    } else {
+        error_log("COUPON_USAGE_ERROR: Coupon {$code_upper} not found for incrementing usage.");
+        return false; // Coupon not found
+    }
+}
+
 
 // --- BOT STATS FUNCTION ---
 function generateBotStatsText() {
@@ -352,6 +521,101 @@ function processCallbackQuery($callback_query) {
 
         editMessageText($chat_id, $message_id, $message_to_send, $final_reply_markup, 'HTML');
     }
+    elseif (strpos($data, CALLBACK_APPLY_COUPON_PREFIX) === 0) {
+        answerCallbackQuery($callback_query->id);
+        $payload = substr($data, strlen(CALLBACK_APPLY_COUPON_PREFIX)); // Expected: CATEGORYKEY_PRODUCTID
+
+        // Basic validation of payload format (presence of '_')
+        if (strpos($payload, '_') === false) {
+            error_log("APPLY_COUPON_PREFIX: Invalid payload format. Data: {$data}");
+            // Optionally send a message to user, or just log and do nothing further.
+            // For now, just log, as this shouldn't happen with correctly generated buttons.
+            return;
+        }
+        // No need to parse category_key and product_id here yet,
+        // just store the raw payload which identifies the product context.
+        // The actual product details will be fetched when validating the coupon.
+
+        setUserState($user_id, [
+            'status' => STATE_USER_ENTERING_COUPON,
+            'product_context_for_coupon' => $payload, // Store "CATEGORYKEY_PRODUCTID"
+            'original_message_id' => $message_id     // ID of the product display message
+        ]);
+
+        $prompt_text = "Please enter your coupon code:";
+        // The "Cancel" button should take them back to viewing this specific product.
+        // The payload (CATEGORYKEY_PRODUCTID) is the callback data for viewing a product.
+        $cancel_keyboard_apply_coupon = json_encode(['inline_keyboard' => [
+            [['text' => '« Cancel Coupon Entry', 'callback_data' => $payload ]]
+        ]]);
+        editMessageText($chat_id, $message_id, $prompt_text, $cancel_keyboard_apply_coupon, "HTML");
+        return;
+    }
+    elseif (strpos($data, CALLBACK_REMOVE_COUPON_PREFIX) === 0) {
+        answerCallbackQuery($callback_query->id, "Coupon removed.", false); // Brief feedback
+
+        $user_state_remove_coupon = getUserState($user_id);
+        if ($user_state_remove_coupon) {
+            unset($user_state_remove_coupon['applied_coupon_for_product']);
+            unset($user_state_remove_coupon['applied_coupon_details']);
+            // Potentially reset status if it was 'viewing_product_with_coupon'
+            // or just let the product view handler rebuild based on absence of coupon details
+            if (empty($user_state_remove_coupon)) { // If state becomes empty, clear it
+                clearUserState($user_id);
+            } else {
+                setUserState($user_id, $user_state_remove_coupon);
+            }
+        }
+
+        // Re-display the product view by extracting the product context from the callback
+        // and effectively re-processing it as if it were a product selection callback.
+        $product_context_to_redisplay = substr($data, strlen(CALLBACK_REMOVE_COUPON_PREFIX));
+
+        // To prevent re-entering this handler or others, create a new "dummy" callback query object
+        // This is a bit of a hack. A cleaner way would be a dedicated function to display product details.
+        // For now, let's try to simulate it carefully.
+        // The general product selection handler expects $data to be just 'category_productid'.
+
+        // To avoid deep recursion or complex re-dispatching, it's safer to just call a function
+        // that renders the product page. Let's assume the product display logic within the
+        // general product selection handler can be refactored into a callable function.
+        // For now, we'll just re-parse and call the relevant parts.
+
+        global $products;
+        if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
+
+        // Parse $product_context_to_redisplay
+        $category_key_redisplay = null;
+        $product_id_redisplay = null;
+        $last_underscore_redisplay = strrpos($product_context_to_redisplay, '_');
+        if ($last_underscore_redisplay !== false) {
+            $category_key_redisplay = substr($product_context_to_redisplay, 0, $last_underscore_redisplay);
+            $product_id_redisplay = substr($product_context_to_redisplay, $last_underscore_redisplay + 1);
+        }
+
+        if ($category_key_redisplay && $product_id_redisplay && isset($products[$category_key_redisplay][$product_id_redisplay])) {
+            $product_selected = $products[$category_key_redisplay][$product_id_redisplay];
+            $original_price = $product_selected['price'];
+
+            $plan_info_text = "<b>Product:</b> " . htmlspecialchars($product_selected['name']) . "\n";
+            $plan_info_text .= "<b>Price: $" . htmlspecialchars($original_price) . "</b>\n"; // Show original price
+            $plan_info_text .= "<b>Info:</b> " . nl2br(htmlspecialchars($product_selected['info'] ?? 'N/A')) . "\n\n";
+            $plan_info_text .= "Do you want to purchase this item?";
+
+            $keyboard_buttons = [];
+            $keyboard_buttons[] = [['text' => "✅ Yes, Buy This (Price: $" . htmlspecialchars($original_price) . ")", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . $product_context_to_redisplay]];
+            $keyboard_buttons[] = [['text' => "🎫 Apply Coupon", 'callback_data' => CALLBACK_APPLY_COUPON_PREFIX . $product_context_to_redisplay]];
+            $keyboard_buttons[] = [['text' => "« Back to Plans", 'callback_data' => 'view_category_' . $category_key_redisplay]];
+
+            $kb_prod_select = json_encode(['inline_keyboard' => $keyboard_buttons]);
+            editMessageText($chat_id, $message_id, $plan_info_text, $kb_prod_select, 'HTML');
+        } else {
+            // Fallback if product details can't be reloaded, send to main menu or category
+            editMessageText($chat_id, $message_id, "Coupon removed. Could not reload product details. Please navigate again.", json_encode(['inline_keyboard' => [[['text' => '« Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]), 'HTML');
+            error_log("REMOVE_COUPON: Product details not found for redisplay. Context: {$product_context_to_redisplay}");
+        }
+        return;
+    }
     elseif (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) === 0) {
         answerCallbackQuery($callback_query->id); // Answer immediately to acknowledge button press
 
@@ -422,11 +686,73 @@ function processCallbackQuery($callback_query) {
                 'inline_keyboard' => [
                     [['text' => "📦 Product Management", 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]],
                     [['text' => "🗂️ Category Management", 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]],
+                    [['text' => "🎫 Coupon Management", 'callback_data' => CALLBACK_ADMIN_COUPON_MANAGEMENT]],
                     [['text' => "📊 View Bot Stats", 'callback_data' => CALLBACK_ADMIN_VIEW_STATS]],
                     [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]
                 ]
             ];
             editMessageText($chat_id, $message_id, "⚙️ Admin Panel ⚙️", json_encode($admin_panel_keyboard_def));
+            return;
+        }
+        elseif ($data === CALLBACK_ADMIN_COUPON_MANAGEMENT) {
+            $coupon_mgt_keyboard = [
+                'inline_keyboard' => [
+                    [['text' => "➕ Add New Coupon", 'callback_data' => CALLBACK_ADMIN_ADD_COUPON_PROMPT]],
+                    // [['text' => "✏️ View/Edit Coupons", 'callback_data' => 'admin_view_edit_coupons']], // Placeholder for Phase 2/3
+                    // [['text' => "📊 Coupon Stats", 'callback_data' => 'admin_coupon_stats']], // Placeholder for Phase 2/3
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            editMessageText($chat_id, $message_id, "🎫 Coupon Management 🎫\nSelect an action:", json_encode($coupon_mgt_keyboard));
+            return;
+        }
+        elseif ($data === CALLBACK_ADMIN_CANCEL_COUPON_CREATION) {
+            answerCallbackQuery($callback_query->id);
+            clearUserState($user_id);
+            // Re-display Coupon Management Menu
+            $coupon_mgt_keyboard_on_cancel = [
+                'inline_keyboard' => [
+                    [['text' => "➕ Add New Coupon", 'callback_data' => CALLBACK_ADMIN_ADD_COUPON_PROMPT]],
+                    // Future buttons for view/edit/stats
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            editMessageText($chat_id, $message_id, "🎫 Coupon Management 🎫\nCoupon creation cancelled. Select an action:", json_encode($coupon_mgt_keyboard_on_cancel), "HTML");
+            return;
+        }
+        elseif ($data === CALLBACK_ADMIN_ADD_COUPON_PROMPT) {
+            setUserState($user_id, ['status' => STATE_ADMIN_ADDING_COUPON_CODE, 'original_message_id' => $message_id, 'coupon_data' => [] ]);
+            $prompt_text = "Enter the new coupon code (e.g., SUMMER20, SAVE15OFF).\n\n- It will be stored in UPPERCASE.\n- Should be unique.\n- Alphanumeric characters recommended.";
+            $cancel_keyboard = json_encode(['inline_keyboard' => [
+                [['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]
+            ]]);
+            editMessageText($chat_id, $message_id, $prompt_text, $cancel_keyboard, "HTML"); // Assuming HTML for potential bolding later
+            return;
+        }
+        elseif (strpos($data, CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE) === 0 || strpos($data, CALLBACK_ADMIN_SET_COUPON_TYPE_FIXED) === 0) {
+            $user_state_coupon_type = getUserState($user_id);
+            if (!$user_state_coupon_type || ($user_state_coupon_type['status'] ?? '') !== STATE_ADMIN_ADDING_COUPON_TYPE) {
+                answerCallbackQuery($callback_query->id, "Invalid action or session expired. Please start over.", true);
+                error_log("COUPON_ADD: Invalid state for setting coupon type. User: {$user_id}, State: " . print_r($user_state_coupon_type, true));
+                return;
+            }
+
+            $chosen_type = (strpos($data, CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE) === 0) ? 'percentage' : 'fixed_amount';
+            $user_state_coupon_type['coupon_data']['discount_type'] = $chosen_type;
+            $user_state_coupon_type['status'] = STATE_ADMIN_ADDING_COUPON_VALUE;
+            setUserState($user_id, $user_state_coupon_type);
+
+            $prompt_value_text = "Selected type: " . ucfirst($chosen_type) . ".\n";
+            if ($chosen_type === 'percentage') {
+                $prompt_value_text .= "Enter the discount percentage (e.g., for 10% enter 10). Must be between 1 and 100.";
+            } else {
+                $prompt_value_text .= "Enter the fixed discount amount (e.g., for $5 off enter 5). Must be a positive number.";
+            }
+            // $prompt_value_text .= "\n\nType /cancel to abort."; // Removed
+            $cancel_keyboard_for_value_prompt = json_encode(['inline_keyboard' => [
+                [['text' => '« Cancel', 'callback_data' => CALLBACK_ADMIN_CANCEL_COUPON_CREATION]]
+            ]]);
+            editMessageText($chat_id, $message_id, $prompt_value_text, $cancel_keyboard_for_value_prompt, "HTML");
             return;
         }
         elseif ($data === CALLBACK_ADMIN_CATEGORY_MANAGEMENT) {
@@ -926,8 +1252,8 @@ function processCallbackQuery($callback_query) {
         (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) !== 0) &&
         (strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) !== 0) &&
         (strpos($data, CALLBACK_REJECT_PAYMENT_PREFIX) !== 0) &&
-        (strpos($data, CALLBACK_ACCEPT_AND_SEND_PREFIX) !== 0) && // Exclude the new prefix
-        (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) !== 0) // Also exclude view item prefix
+        (strpos($data, CALLBACK_ACCEPT_AND_SEND_PREFIX) !== 0) &&
+        (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) !== 0)
     ) {
         error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
         global $products; $products = readJsonFile(PRODUCTS_FILE);
@@ -937,15 +1263,52 @@ function processCallbackQuery($callback_query) {
 
         if (isset($products[$category_key_select][$product_id_select])) {
             $product_selected = $products[$category_key_select][$product_id_select];
-            $plan_info_text = "<b>Product:</b> " . htmlspecialchars($product_selected['name']) . "\n";
-            $plan_info_text .= "<b>Price:</b> $" . htmlspecialchars($product_selected['price']) . "\n";
+            $original_price = $product_selected['price'];
+            $current_price_to_display = $original_price;
+            $product_name_display = htmlspecialchars($product_selected['name']);
+
+            $plan_info_text = "<b>Product:</b> " . $product_name_display . "\n";
+
+            // Check user state for applied coupon for this specific product
+            $user_state_product_view = getUserState($user_id);
+            $coupon_applied_for_this_product = false;
+            $applied_coupon_code = '';
+
+            if (isset($user_state_product_view['applied_coupon_for_product']) &&
+                $user_state_product_view['applied_coupon_for_product'] === "{$category_key_select}_{$product_id_select}" &&
+                isset($user_state_product_view['applied_coupon_details'])) {
+
+                $coupon_details = $user_state_product_view['applied_coupon_details'];
+                $current_price_to_display = $coupon_details['discounted_price'];
+                $applied_coupon_code = $coupon_details['code'];
+                $coupon_applied_for_this_product = true;
+
+                $plan_info_text .= "Original Price: $" . htmlspecialchars($original_price) . "\n";
+                $plan_info_text .= "Coupon '<b>" . htmlspecialchars($applied_coupon_code) . "</b>' Applied: -$" . htmlspecialchars($coupon_details['discount_amount']) . "\n";
+                $plan_info_text .= "<b>Final Price: $" . htmlspecialchars($current_price_to_display) . "</b>\n";
+            } else {
+                $plan_info_text .= "<b>Price: $" . htmlspecialchars($original_price) . "</b>\n";
+            }
+
             $plan_info_text .= "<b>Info:</b> " . nl2br(htmlspecialchars($product_selected['info'] ?? 'N/A')) . "\n\n";
             $plan_info_text .= "Do you want to purchase this item?";
+
+            $keyboard_buttons = [];
+            // Row 1: Buy Button
+            $keyboard_buttons[] = [['text' => "✅ Yes, Buy This (Price: $" . htmlspecialchars($current_price_to_display) . ")", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . "{$category_key_select}_{$product_id_select}"]];
+
+            // Row 2: Coupon Button
+            if ($coupon_applied_for_this_product) {
+                $keyboard_buttons[] = [['text' => "🚫 Remove Coupon (" . htmlspecialchars($applied_coupon_code) . ")", 'callback_data' => CALLBACK_REMOVE_COUPON_PREFIX . "{$category_key_select}_{$product_id_select}"]];
+            } else {
+                $keyboard_buttons[] = [['text' => "🎫 Apply Coupon", 'callback_data' => CALLBACK_APPLY_COUPON_PREFIX . "{$category_key_select}_{$product_id_select}"]];
+            }
+
+            // Row 3: Back Button
             $back_cb_data = 'view_category_' . $category_key_select;
-            $kb_prod_select = json_encode(['inline_keyboard' => [
-                [['text' => "✅ Yes, Buy This", 'callback_data' => CALLBACK_CONFIRM_BUY_PREFIX . "{$category_key_select}_{$product_id_select}"]],
-                [['text' => "« Back to Plans", 'callback_data' => $back_cb_data ]]
-            ]]);
+            $keyboard_buttons[] = [['text' => "« Back to Plans", 'callback_data' => $back_cb_data]];
+
+            $kb_prod_select = json_encode(['inline_keyboard' => $keyboard_buttons]);
             editMessageText($chat_id, $message_id, $plan_info_text, $kb_prod_select, 'HTML');
         } else {
              error_log("PROD_SEL_DEBUG: Product '{$category_key_select}_{$product_id_select}' not found in loaded products. Data: ".$data);
@@ -966,22 +1329,66 @@ function processCallbackQuery($callback_query) {
 
         $product_to_buy = getProductDetails($category_key_confirm_buy, $product_id_confirm_buy);
         if ($product_to_buy) {
-            setUserState($user_id, [
+            $user_state_confirm_buy = getUserState($user_id);
+            $final_price_to_pay = $product_to_buy['price'];
+            $original_price_for_display = $product_to_buy['price'];
+            $coupon_code_applied_state = null;
+            $discount_amount_state = 0;
+
+            $product_context_confirm = "{$category_key_confirm_buy}_{$product_id_confirm_buy}";
+
+            if (isset($user_state_confirm_buy['applied_coupon_for_product']) &&
+                $user_state_confirm_buy['applied_coupon_for_product'] === $product_context_confirm &&
+                isset($user_state_confirm_buy['applied_coupon_details'])) {
+
+                $applied_coupon_info = $user_state_confirm_buy['applied_coupon_details'];
+                $final_price_to_pay = $applied_coupon_info['discounted_price'];
+                // $original_price_for_display is already set
+                $coupon_code_applied_state = $applied_coupon_info['code'];
+                $discount_amount_state = $applied_coupon_info['discount_amount_calculated'];
+            }
+
+            $state_data_for_receipt = [
                 'status' => STATE_AWAITING_RECEIPT,
                 'message_id' => $message_id,
                 'product_name' => $product_to_buy['name'],
-                'price' => $product_to_buy['price'],
+                'price' => $final_price_to_pay, // This is the final price to be paid
                 'category_key' => $category_key_confirm_buy,
-                'product_id' => $product_id_confirm_buy
-            ]);
+                'product_id' => $product_id_confirm_buy,
+                'original_price' => $original_price_for_display
+            ];
+
+            if ($coupon_code_applied_state) {
+                $state_data_for_receipt['coupon_code'] = $coupon_code_applied_state;
+                $state_data_for_receipt['discount_applied'] = $discount_amount_state;
+            }
+            setUserState($user_id, $state_data_for_receipt);
+
             $paymentDets_buy = getPaymentDetails();
-            $text_buy_confirm = "To complete your purchase for <b>".htmlspecialchars($product_to_buy['name'])."</b> (Price: \$".htmlspecialchars($product_to_buy['price'])."), please transfer the amount to:\n\n";
+            $text_buy_confirm = "To complete your purchase for <b>".htmlspecialchars($product_to_buy['name'])."</b>:\n\n";
+            if ($coupon_code_applied_state) {
+                $text_buy_confirm .= "Original Price: $" . htmlspecialchars($original_price_for_display) . "\n";
+                $text_buy_confirm .= "Coupon '<b>" . htmlspecialchars($coupon_code_applied_state) . "</b>' Applied: -$" . htmlspecialchars($discount_amount_state) . "\n";
+                $text_buy_confirm .= "<b>Amount to Pay: $" . htmlspecialchars($final_price_to_pay) . "</b>\n\n";
+            } else {
+                $text_buy_confirm .= "<b>Price: $" . htmlspecialchars($final_price_to_pay) . "</b>\n\n";
+            }
+
+            $text_buy_confirm .= "Please transfer the amount to:\n";
             $text_buy_confirm .= "Card Number: `".htmlspecialchars($paymentDets_buy['card_number'])."`\n";
             $text_buy_confirm .= "Card Holder: `".htmlspecialchars($paymentDets_buy['card_holder'])."`\n\n";
             $text_buy_confirm .= "After making the payment, please send a screenshot of the transaction receipt to this chat.\n\nType /cancel to cancel this purchase.";
 
-            $kb_buy_confirm = json_encode(['inline_keyboard' => [[['text' => 'Cancel Purchase', 'callback_data' => "{$category_key_confirm_buy}_{$product_id_confirm_buy}" ]]]]);
-            editMessageText($chat_id, $message_id, $text_buy_confirm, $kb_buy_confirm, 'Markdown');
+            // Keyboard with Cancel, and potentially Copy Card/Price (if that feature is re-added)
+            // For now, as per revert, only Cancel.
+            $cancel_button = ['text' => '« Cancel Purchase', 'callback_data' => "{$category_key_confirm_buy}_{$product_id_confirm_buy}"];
+            $kb_buy_confirm_array = [
+                'inline_keyboard' => [
+                    [$cancel_button]
+                ]
+            ];
+            $kb_buy_confirm = json_encode($kb_buy_confirm_array);
+            editMessageText($chat_id, $message_id, $text_buy_confirm, $kb_buy_confirm, 'HTML'); // Changed parse_mode to HTML
         } else {
             error_log("Confirm Buy: Product details not found. Cat:{$category_key_confirm_buy}, ProdID:{$product_id_confirm_buy}, Data: {$data}");
             editMessageText($chat_id, $message_id, "Error: The product you are trying to purchase could not be found. It might have been removed or updated. Please select again.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Main Menu', 'callback_data'=>CALLBACK_BACK_TO_MAIN]]]]));
@@ -1032,46 +1439,71 @@ function processCallbackQuery($callback_query) {
 
         $original_caption_payment = $callback_query->message->caption ?? '';
         // Get product name from stored details, not just receipt, for accuracy.
+        // $product_details_for_msg and $product_name_for_msg are based on current DB, used for initial message construction
         $product_details_for_msg = getProductDetails($category_key_payment, $product_id_payment);
-        $product_name_for_msg = $product_details_for_msg ? $product_details_for_msg['name'] : "Unknown Product (ID: {$product_id_payment})";
-        $product_price_for_msg = $product_details_for_msg ? ($product_details_for_msg['price'] ?? 'N/A') : 'N/A';
+        $product_name_for_initial_msg = $product_details_for_msg ? $product_details_for_msg['name'] : "Unknown Product (ID: {$product_id_payment})";
+
+        // Get the state of the user who made the purchase to retrieve accurate transaction details
+        $target_user_purchase_state = getUserState($target_user_id_payment);
 
         if ($is_accept_payment) {
-            $item_content_for_record = null; // Initialize content to be stored with purchase
+            $item_content_for_record = null;
             $admin_message_suffix = "\n\n✅ PAYMENT ACCEPTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").";
-            $user_message = "✅ Great news! Your payment for '<b>".htmlspecialchars($product_name_for_msg)."</b>' has been accepted.";
 
-            if ($product_details_for_msg) {
+            // Details from the user's state at the time of confirming purchase (STATE_AWAITING_RECEIPT)
+            $product_name_from_state = $target_user_purchase_state['product_name'] ?? $product_name_for_initial_msg;
+            $final_price_paid_from_state = $target_user_purchase_state['price'] ?? ($product_details_for_msg['price'] ?? 'N/A');
+            $original_price_from_state = $target_user_purchase_state['original_price'] ?? $final_price_paid_from_state;
+            $coupon_code_from_state = $target_user_purchase_state['coupon_code'] ?? null;
+            $discount_applied_from_state = $target_user_purchase_state['discount_applied'] ?? null;
+
+            $user_message = "✅ Great news! Your payment for '<b>".htmlspecialchars($product_name_from_state)."</b>' has been accepted.";
+
+            if ($product_details_for_msg) { // Still use current product_details for type check
                 if (($product_details_for_msg['type'] ?? 'manual') === 'instant') {
                     error_log("PAY_CONF: Product '{$category_key_payment}_{$product_id_payment}' is INSTANT. Attempting to deliver.");
                     $item_to_deliver = getAndRemoveInstantProductItem($category_key_payment, $product_id_payment);
                     if ($item_to_deliver !== null) {
-                        $item_content_for_record = $item_to_deliver; // Set item to be stored
+                        $item_content_for_record = $item_to_deliver;
                         $user_message .= "\n\nHere is your item:\n<code>" . htmlspecialchars($item_to_deliver) . "</code>";
                         $admin_message_suffix .= "\n✅ Instant item delivered to user.";
-                        error_log("PAY_CONF: Instant item '{$item_to_deliver}' delivered for {$category_key_payment}_{$product_id_payment} to user {$target_user_id_payment}.");
+                        error_log("PAY_CONF: Instant item delivered for {$category_key_payment}_{$product_id_payment} to user {$target_user_id_payment}.");
                     } else {
-                        // Out of stock
-                        $user_message .= "\n\n⚠️ Your product is ready, but we're currently out of stock for instant delivery. Please contact support, and we'll assist you shortly!";
-                        $admin_message_suffix .= "\n⚠️ INSTANT DELIVERY FAILED: Product '{$category_key_payment}_{$product_id_payment}' is OUT OF STOCK. User {$target_user_id_payment} notified to contact support. PLEASE HANDLE MANUALLY.";
+                        $user_message .= "\n\n⚠️ Your product is ready, but we're currently out of stock for instant delivery. Please contact support for assistance.";
+                        $admin_message_suffix .= "\n⚠️ INSTANT DELIVERY FAILED (OUT OF STOCK): {$category_key_payment}_{$product_id_payment}. User {$target_user_id_payment} notified. PLEASE HANDLE MANUALLY.";
                         error_log("PAY_CONF: INSTANT DELIVERY FAILED (OUT OF STOCK) for {$category_key_payment}_{$product_id_payment} to user {$target_user_id_payment}.");
                     }
-                } else { // Manual product
-                    $user_message .= "\nYour product will be delivered manually by an admin shortly. You can find it in 'My Products' once processed.";
+                } else {
+                    $user_message .= "\nYour product will be delivered manually by an admin shortly.";
                     $admin_message_suffix .= "\nℹ️ This is a MANUAL delivery product. User notified.";
-                    error_log("PAY_CONF: Manual product '{$category_key_payment}_{$product_id_payment}'. User {$target_user_id_payment} notified for manual delivery.");
                 }
-            } else { // Product details not found - critical error
-                $user_message .= "\n\n⚠️ ERROR: We could not retrieve the details for your purchased product (ID: {$product_id_payment}). Please contact support immediately for assistance.";
-                $admin_message_suffix .= "\n\n🔥🔥 CRITICAL ERROR: Could not retrieve product details for '{$category_key_payment}_{$product_id_payment}' during payment acceptance. User {$target_user_id_payment} notified to contact support. PLEASE INVESTIGATE AND HANDLE MANUALLY.";
+            } else {
+                $user_message .= "\n\n⚠️ ERROR: Product details not found. Please contact support.";
+                $admin_message_suffix .= "\n\n🔥🔥 CRITICAL ERROR: Product details not found for {$category_key_payment}_{$product_id_payment}. User {$target_user_id_payment} notified. PLEASE INVESTIGATE.";
                 error_log("PAY_CONF: CRITICAL ERROR - Product details not found for {$category_key_payment}_{$product_id_payment} for user {$target_user_id_payment}.");
             }
 
-            // Call recordPurchase ONCE here, with all necessary info including potentially delivered item content
-            recordPurchase($target_user_id_payment, $product_name_for_msg, $product_price_for_msg, $item_content_for_record);
+            recordPurchase(
+                $target_user_id_payment,
+                $product_name_from_state,
+                $final_price_paid_from_state,
+                $item_content_for_record,
+                $original_price_from_state,
+                $coupon_code_from_state,
+                $discount_applied_from_state
+            );
+
+            if ($coupon_code_from_state) {
+                incrementCouponUsage($coupon_code_from_state);
+            }
+
+            // Clear user's STATE_AWAITING_RECEIPT state after processing
+            if (($target_user_purchase_state['status'] ?? null) === STATE_AWAITING_RECEIPT) {
+                clearUserState($target_user_id_payment);
+            }
 
             editMessageCaption($chat_id, $message_id, $original_caption_payment . $admin_message_suffix, null, 'Markdown');
-            sendMessage($target_user_id_payment, $user_message);
+            sendMessage($target_user_id_payment, $user_message, null, 'HTML');
 
         } else { // Payment Rejected
             $admin_message_suffix = "\n\n❌ PAYMENT REJECTED by admin {$user_id} (@".($callback_query->from->username ?? 'N/A').").";
@@ -1113,10 +1545,27 @@ function processCallbackQuery($callback_query) {
             return;
         }
         $product_name_send = $product_details_send['name'];
-        $product_price_send = $product_details_send['price'] ?? 'N/A';
+        // $product_price_send = $product_details_send['price'] ?? 'N/A'; // Original price from DB
+
+        // Get the state of the user who made the purchase to retrieve accurate transaction details
+        $target_user_purchase_state_send = getUserState($target_user_id_send);
+
+        $product_name_from_state_send = $target_user_purchase_state_send['product_name'] ?? $product_name_send;
+        $final_price_paid_from_state_send = $target_user_purchase_state_send['price'] ?? ($product_details_send['price'] ?? 'N/A');
+        $original_price_from_state_send = $target_user_purchase_state_send['original_price'] ?? $final_price_paid_from_state_send;
+        $coupon_code_from_state_send = $target_user_purchase_state_send['coupon_code'] ?? null;
+        $discount_applied_from_state_send = $target_user_purchase_state_send['discount_applied'] ?? null;
 
         // Record the purchase, initially with null delivered_item_content
-        $purchase_index = recordPurchase($target_user_id_send, $product_name_send, $product_price_send, null);
+        $purchase_index = recordPurchase(
+            $target_user_id_send,
+            $product_name_from_state_send,
+            $final_price_paid_from_state_send,
+            null, // No delivered item content at this stage for manual send
+            $original_price_from_state_send,
+            $coupon_code_from_state_send,
+            $discount_applied_from_state_send
+        );
 
         if ($purchase_index === false) {
             error_log("ACCEPT_SEND_CONF: Failed to record purchase for {$category_key_send}_{$product_id_send} for user {$target_user_id_send}.");
@@ -1152,8 +1601,18 @@ function processCallbackQuery($callback_query) {
         sendMessage($chat_id, "➡️ You are now live with User ID: <b>{$target_user_id_send}</b> to deliver '<b>".htmlspecialchars($product_name_send)."</b>'.\n\nReply to your own message with <code>/save</code> to store its content as the delivered item. Type <code>/end</code> when finished.", null, "HTML");
 
         // Send an initial message to the target user
-        sendMessage($target_user_id_send, "An admin is now connected to provide details for your purchase: '<b>".htmlspecialchars($product_name_send)."</b>'. Please wait for their message.");
-        error_log("ACCEPT_SEND_CONF: Admin {$user_id} started manual send session with user {$target_user_id_send} for product {$category_key_send}_{$product_id_send}, purchase index {$purchase_index}.");
+        sendMessage($target_user_id_send, "An admin is now connected to provide details for your purchase: '<b>".htmlspecialchars($product_name_from_state_send)."</b>'. Please wait for their message."); // Use name from state for consistency
+
+        if ($coupon_code_from_state_send) {
+            incrementCouponUsage($coupon_code_from_state_send);
+        }
+
+        // Clear user's STATE_AWAITING_RECEIPT state after processing
+        if (($target_user_purchase_state_send['status'] ?? null) === STATE_AWAITING_RECEIPT) {
+            clearUserState($target_user_id_send);
+        }
+
+        error_log("ACCEPT_SEND_CONF: Admin {$user_id} started manual send session with user {$target_user_id_send} for product {$category_key_send}_{$product_id_send}, purchase index {$purchase_index}. Coupon used: " . ($coupon_code_from_state_send ?? 'None'));
     }
     elseif ($data === CALLBACK_BACK_TO_MAIN) {
         clearUserState($user_id);
