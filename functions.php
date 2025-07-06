@@ -970,8 +970,10 @@ function processCallbackQuery($callback_query) {
         (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) !== 0) &&
         (strpos($data, CALLBACK_ACCEPT_PAYMENT_PREFIX) !== 0) &&
         (strpos($data, CALLBACK_REJECT_PAYMENT_PREFIX) !== 0) &&
-        (strpos($data, CALLBACK_ACCEPT_AND_SEND_PREFIX) !== 0) && // Exclude the new prefix
-        (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) !== 0) // Also exclude view item prefix
+        (strpos($data, CALLBACK_ACCEPT_AND_SEND_PREFIX) !== 0) &&
+        (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) !== 0) &&
+        ($data !== CALLBACK_COPY_CARD_NUMBER) && // Exclude copy card number
+        (strpos($data, CALLBACK_COPY_PRICE_PREFIX) !== 0) // Exclude copy price prefix
     ) {
         error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
         global $products; $products = readJsonFile(PRODUCTS_FILE);
