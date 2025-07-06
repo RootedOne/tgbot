@@ -339,21 +339,28 @@ function processCallbackQuery($callback_query) {
         editMessageText($chat_id, $message_id, $message_to_send, $final_reply_markup, 'HTML');
     }
     elseif (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) === 0) {
-        answerCallbackQuery($callback_query->id); // Answer immediately
+        answerCallbackQuery($callback_query->id); // Answer immediately to acknowledge button press
 
         $payload = substr($data, strlen(CALLBACK_VIEW_PURCHASED_ITEM_PREFIX)); // Expected: USERID_PURCHASEINDEX
         $parts = explode('_', $payload);
 
+        $text_to_display = "";
+        $keyboard_markup = json_encode(['inline_keyboard' => [[['text' => '« Back to My Products', 'callback_data' => CALLBACK_MY_PRODUCTS]]]]);
+
         if (count($parts) === 2) {
-            $item_owner_id_from_cb = $parts[0]; // The user ID stored in the callback data
+            $item_owner_id_from_cb = $parts[0];
             $purchase_index_from_cb = (int)$parts[1];
 
-            // Security check: Ensure the user interacting ($user_id) is the one whose item this is ($item_owner_id_from_cb)
             if ((string)$user_id !== (string)$item_owner_id_from_cb) {
                 error_log("VIEW_ITEM_DENIED: User {$user_id} attempted to view item for user {$item_owner_id_from_cb}. Denied. Callback: {$data}");
-                // Optionally send a silent message or just log. For now, no message to user to avoid confusion.
-                // sendMessage($chat_id, "⚠️ Action not allowed.");
-                return; // Exit silently or with a generic error if preferred.
+                // To prevent information leakage or confusion, edit the message to a generic error or back to My Products.
+                // For simplicity, just showing an error text.
+                $text_to_display = "⚠️ Action not allowed.";
+                // No 'Back' button here as this is an unauthorized access attempt.
+                // Or, could edit to "My Products" view again.
+                // Let's keep it simple:
+                editMessageText($chat_id, $message_id, $text_to_display, null, 'HTML'); // No keyboard for error
+                return;
             }
 
             $all_purchases_data = readJsonFile(USER_PURCHASES_FILE);
@@ -362,49 +369,28 @@ function processCallbackQuery($callback_query) {
             if (isset($user_specific_purchases_list[$purchase_index_from_cb])) {
                 $purchase_to_display = $user_specific_purchases_list[$purchase_index_from_cb];
 
-                if (isset($purchase_to_display['delivered_item_content']) && trim($purchase_to_display['delivered_item_content']) !== '') {
-                    $content_msg = "<b>Item:</b> " . htmlspecialchars($purchase_to_display['product_name']) . "\n";
-                    $content_msg .= "<b>Purchased:</b> " . htmlspecialchars($purchase_to_display['date']) . "\n\n";
-                    $content_msg .= "<b>Your item details:</b>\n<code>" . htmlspecialchars($purchase_to_display['delivered_item_content']) . "</code>";
+                $text_to_display = "<b>Item:</b> " . htmlspecialchars($purchase_to_display['product_name']) . "\n";
+                $text_to_display .= "<b>Purchased:</b> " . htmlspecialchars($purchase_to_display['date']) . "\n";
+                if (isset($purchase_to_display['price'])) {
+                     $text_to_display .= "<b>Price:</b> $" . htmlspecialchars($purchase_to_display['price']) . "\n";
+                }
+                $text_to_display .= "\n"; // Extra newline before details or note
 
-                    // Send as a new message. User can then dismiss it.
-                    // The original "My Products" message remains, allowing them to view other items.
-                    sendMessage($chat_id, $content_msg, null, 'HTML');
+                if (isset($purchase_to_display['delivered_item_content']) && trim($purchase_to_display['delivered_item_content']) !== '') {
+                    $text_to_display .= "<b>Your item details:</b>\n<code>" . htmlspecialchars($purchase_to_display['delivered_item_content']) . "</code>";
                 } else {
-                    // No specific content to display, show general info (could be an alert for the user).
-                    $info_msg = "<b>Product:</b> " . htmlspecialchars($purchase_to_display['product_name']) . "\n";
-                    if (isset($purchase_to_display['price'])) { // Price might not always be set for manually added items if schema changes
-                         $info_msg .= "<b>Price:</b> $" . htmlspecialchars($purchase_to_display['price']) . "\n";
-                    }
-                    $info_msg .= "<b>Date:</b> " . htmlspecialchars($purchase_to_display['date']) . "\n\n";
-                    $info_msg .= "This item was delivered manually or does not have specific viewable content here.";
-                    // Using answerCallbackQuery with show_alert=true to show this as a pop-up.
-                    bot('answerCallbackQuery', [
-                        'callback_query_id' => $callback_query->id,
-                        'text' => $info_msg,
-                        'show_alert' => true,
-                        'parse_mode' => 'HTML' // Ensure parse_mode is supported if used in answerCallbackQuery text
-                    ]);
-                    // sendMessage($chat_id, $info_msg, null, 'HTML'); // Alternative: send as message
+                    $text_to_display .= "This item was delivered manually or does not have specific viewable content here.";
                 }
             } else {
-                // Item not found at index, show alert
-                 bot('answerCallbackQuery', [
-                    'callback_query_id' => $callback_query->id,
-                    'text' => "⚠️ Could not find this purchased item. It might have been removed or there was an error.",
-                    'show_alert' => true
-                ]);
+                $text_to_display = "⚠️ Could not find this purchased item. It might have been removed or there was an error.";
                 error_log("VIEW_ITEM_NOT_FOUND: Purchase item not found for user {$item_owner_id_from_cb} at index {$purchase_index_from_cb}. Callback: {$data}");
             }
         } else {
-            // Invalid callback data format
-            bot('answerCallbackQuery', [
-                'callback_query_id' => $callback_query->id,
-                'text' => "⚠️ Error retrieving item details due to invalid data format.",
-                'show_alert' => true
-            ]);
+            $text_to_display = "⚠️ Error retrieving item details due to invalid data format.";
             error_log("VIEW_ITEM_INVALID_FORMAT: Invalid data format for viewing purchased item. Callback: {$data}");
         }
+
+        editMessageText($chat_id, $message_id, $text_to_display, $keyboard_markup, 'HTML');
     }
     elseif ($data === CALLBACK_SUPPORT) {
         setUserState($user_id, ['status' => STATE_AWAITING_SUPPORT_MESSAGE, 'message_id' => $message_id]);
