@@ -32,6 +32,8 @@ define('STATE_ADMIN_ADDING_COUPON_CODE', 'admin_adding_coupon_code');
 define('STATE_ADMIN_ADDING_COUPON_TYPE', 'admin_adding_coupon_type');
 define('STATE_ADMIN_ADDING_COUPON_VALUE', 'admin_adding_coupon_value');
 define('STATE_ADMIN_ADDING_COUPON_MAX_USES', 'admin_adding_coupon_max_uses');
+// User state for coupon application
+define('STATE_USER_ENTERING_COUPON', 'user_entering_coupon');
 // Note: 'admin_adding_prod_info_prompt' was a transient state name used before setting 'admin_adding_prod_info', so not making it a global constant.
 
 // --- Callback Data Prefixes/Actions ---
@@ -94,6 +96,10 @@ define('CALLBACK_ADMIN_ADD_COUPON_PROMPT', 'admin_add_coupon_prompt');
 define('CALLBACK_ADMIN_SET_COUPON_TYPE_PERCENTAGE', 'admin_set_coupon_type_percentage');
 define('CALLBACK_ADMIN_SET_COUPON_TYPE_FIXED', 'admin_set_coupon_type_fixed');
 define('CALLBACK_ADMIN_CANCEL_COUPON_CREATION', 'admin_cancel_coupon');
+
+// User Coupon Application Callbacks
+define('CALLBACK_APPLY_COUPON_PREFIX', 'apply_coupon_');
+define('CALLBACK_REMOVE_COUPON_PREFIX', 'remove_coupon_');
 
 
 // Payment Callbacks
