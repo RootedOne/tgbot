@@ -187,6 +187,107 @@ function addCoupon($coupon_data) {
 }
 // --- End Coupon Data Functions ---
 
+// --- Helper for Product Addition Flow ---
+function proceedToProductItemsOrId($user_id, $chat_id, $message_id_to_edit, $user_state) {
+    // This function is called after product info is confirmed done.
+    // It decides whether to ask for instant items or product ID.
+
+    // Ensure product info is not empty (double check, though caller should verify)
+    if (empty(trim($user_state['new_product_info'] ?? ''))) {
+         editMessageText($chat_id, $message_id_to_edit, "⚠️ Product information cannot be empty. Please enter some information before proceeding.", json_encode(['inline_keyboard' => [[['text' => '✅ Done Entering Info', 'callback_data' => CALLBACK_ADMIN_FINISH_PROD_INFO ]], [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT ]]]]));
+        return false; // Indicate failure or inability to proceed
+    }
+
+    $product_name_context = $user_state['new_product_name'] ?? 'this product';
+
+    if ($user_state['new_product_type'] === 'instant') {
+        $user_state['status'] = STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS;
+        $user_state['new_product_items'] = []; // Initialize items array
+        setUserState($user_id, $user_state);
+        $prompt_text = "Product Info for '".htmlspecialchars($product_name_context)."' saved.\n\nNow, send the instant delivery items one by one (e.g., codes, links).\nType /done_items or click the button when all items for this product are added.";
+        $keyboard = json_encode(['inline_keyboard' => [
+            [['text' => '✅ Done Adding Items', 'callback_data' => CALLBACK_ADMIN_FINISH_PROD_INSTANT_ITEMS]],
+            [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]
+        ]]);
+        if ($message_id_to_edit) {
+            editMessageText($chat_id, $message_id_to_edit, $prompt_text, $keyboard);
+        } else {
+            sendMessage($chat_id, $prompt_text, $keyboard);
+        }
+    } else { // Manual product
+        $user_state['status'] = STATE_ADMIN_ADDING_PROD_ID;
+        setUserState($user_id, $user_state);
+        $prompt_text = "Product Info for '".htmlspecialchars($product_name_context)."' saved.\n\nEnter a unique Product ID for internal tracking (e.g., `my_manual_prod_001`, `service_xyz`).\nThis ID will not be shown to users.";
+         $keyboard = json_encode(['inline_keyboard' => [
+            [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]
+        ]]);
+        if ($message_id_to_edit) {
+            editMessageText($chat_id, $message_id_to_edit, $prompt_text, $keyboard);
+        } else {
+            sendMessage($chat_id, $prompt_text, $keyboard);
+        }
+    }
+    return true; // Indicate success
+}
+
+function proceedToProductId($user_id, $chat_id, $message_id_to_edit, $user_state) {
+    // This function is called after instant items are confirmed done.
+    // It transitions to asking for product ID.
+    $user_state['status'] = STATE_ADMIN_ADDING_PROD_ID;
+    setUserState($user_id, $user_state);
+
+    $item_count_display = count($user_state['new_product_items'] ?? []);
+    $product_name_context_items = $user_state['new_product_name'] ?? 'this product';
+    $prompt_text = "{$item_count_display} instant item(s) for '".htmlspecialchars($product_name_context_items)."' saved.\n\nEnter a unique Product ID for internal tracking (e.g., `".htmlspecialchars($user_state['category_key'] ?? 'cat')."_".htmlspecialchars(str_replace(' ', '_', $product_name_context_items))."_inst`).\nThis ID will not be shown to users.";
+    $keyboard = json_encode(['inline_keyboard' => [
+        [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]
+    ]]);
+    if ($message_id_to_edit) {
+        editMessageText($chat_id, $message_id_to_edit, $prompt_text, $keyboard);
+    } else {
+        sendMessage($chat_id, $prompt_text, $keyboard);
+    }
+    return true; // Indicate success
+}
+
+// --- Product Finalization Function ---
+function finalizeProductAddition($admin_user_id, $category_key, $product_id, $product_data_array) {
+    global $products;
+    if (empty($products)) {
+        $products = readJsonFile(PRODUCTS_FILE);
+    }
+
+    // Ensure category exists
+    if (!isset($products[$category_key])) {
+        $products[$category_key] = [];
+    }
+
+    // Check again for safety, though should be caught by caller state
+    if (isset($products[$category_key][$product_id])) {
+        error_log("FINALIZE_PROD_ADD_ERROR: Product ID '{$product_id}' already exists in category '{$category_key}' during finalization attempt by admin {$admin_user_id}. This should have been caught earlier.");
+        return false; // Should not happen if validation in bot.php is correct
+    }
+
+    // Add the product
+    // The $product_data_array already contains 'id' which is $product_id.
+    // It also contains 'name', 'type', 'price', 'info', and 'items' if applicable.
+    $products[$category_key][$product_id] = $product_data_array;
+
+    if (writeJsonFile(PRODUCTS_FILE, $products)) {
+        error_log("FINALIZE_PROD_ADD_SUCCESS: Admin {$admin_user_id} added product '{$product_id}' to category '{$category_key}'. Data: " . print_r($product_data_array, true));
+        return true;
+    } else {
+        error_log("FINALIZE_PROD_ADD_ERROR: Failed to write products file when admin {$admin_user_id} tried to add product '{$product_id}' to category '{$category_key}'.");
+        // Attempt to revert in-memory change for consistency, though this is tricky
+        // A more robust system might use transactions or backups.
+        // For now, just log the error. The in-memory $products array might be dirty.
+        // Re-reading from file might be an option if subsequent operations depend on clean data.
+        $products = readJsonFile(PRODUCTS_FILE); // Re-load to discard failed in-memory change
+        return false;
+    }
+}
+// --- End Product Finalization Function ---
+
 // --- Coupon Validation and Application Logic ---
 function validateAndApplyCoupon($user_id, $coupon_code_text, $product_context_string) {
     global $products;
@@ -929,14 +1030,44 @@ function processCallbackQuery($callback_query) {
         elseif ($data === CALLBACK_ADMIN_SET_PROD_TYPE_INSTANT || $data === CALLBACK_ADMIN_SET_PROD_TYPE_MANUAL) {
             $user_state = getUserState($user_id);
             if(!$user_state || !isset($user_state['status']) || $user_state['status'] !== STATE_ADMIN_ADDING_PROD_TYPE_PROMPT) {
+                // error_log("DEBUG: State mismatch in SET_PROD_TYPE. Expected STATE_ADMIN_ADDING_PROD_TYPE_PROMPT, got: " . ($user_state['status'] ?? 'null'));
+                answerCallbackQuery($callback_query->id, "Session error. Please try adding product again.", true);
                 return;
             }
             $user_state['new_product_type'] = ($data === CALLBACK_ADMIN_SET_PROD_TYPE_INSTANT) ? 'instant' : 'manual';
             $user_state['status'] = STATE_ADMIN_ADDING_PROD_PRICE;
             setUserState($user_id, $user_state);
-            editMessageText($chat_id, $message_id, "Type set to: {$user_state['new_product_type']}.\nEnter the price for '{$user_state['new_product_name']}': (numbers only)", null);
+            // Edit the original message (which was the product name prompt)
+            if(isset($user_state['original_message_id'])) {
+                 editMessageText($chat_id, $user_state['original_message_id'], "Product Name: '".htmlspecialchars($user_state['new_product_name'])."'\nType set to: {$user_state['new_product_type']}.\nEnter the price: (numbers only)", null);
+            } else {
+                sendMessage($chat_id, "Type set to: {$user_state['new_product_type']}.\nEnter the price for '{$user_state['new_product_name']}': (numbers only)", null);
+            }
         }
+        elseif ($data === CALLBACK_ADMIN_FINISH_PROD_INFO) {
+            answerCallbackQuery($callback_query->id);
+            $user_state = getUserState($user_id);
 
+            if (!$user_state || $user_state['status'] !== STATE_ADMIN_ADDING_PROD_INFO) {
+                editMessageText($chat_id, $message_id, "⚠️ Error: Could not finalize product information. Session may have expired or state is incorrect. Please try adding the product again.", json_encode(['inline_keyboard' => [[['text' => '« Product Management', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
+                error_log("FINISH_PROD_INFO_ERROR: User {$user_id} in wrong state for FINISH_PROD_INFO: " . ($user_state['status'] ?? 'Not set'));
+                return;
+            }
+            // Call the refactored function
+            proceedToProductItemsOrId($user_id, $chat_id, $message_id, $user_state);
+        }
+        elseif ($data === CALLBACK_ADMIN_FINISH_PROD_INSTANT_ITEMS) {
+            answerCallbackQuery($callback_query->id);
+            $user_state = getUserState($user_id);
+
+            if (!$user_state || $user_state['status'] !== STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS) {
+                editMessageText($chat_id, $message_id, "⚠️ Error: Could not finalize instant items. Session may have expired or state is incorrect. Please try adding the product again.", json_encode(['inline_keyboard' => [[['text' => '« Product Management', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
+                error_log("FINISH_INSTANT_ITEMS_ERROR: User {$user_id} in wrong state for FINISH_INSTANT_ITEMS: " . ($user_state['status'] ?? 'Not set'));
+                return;
+            }
+            // Call the refactored function
+            proceedToProductId($user_id, $chat_id, $message_id, $user_state);
+        }
         elseif ($data === CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY) {
             global $products; $products = readJsonFile(PRODUCTS_FILE);
             if (empty($products)) { editMessageText($chat_id, $message_id, "No categories found to edit products from.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]])); return; }

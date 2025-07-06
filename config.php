@@ -50,6 +50,8 @@ define('CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY', 'admin_add_prod_select_categor
 define('CALLBACK_ADMIN_AP_CAT_PREFIX', 'admin_ap_cat_');
 define('CALLBACK_ADMIN_SET_PROD_TYPE_INSTANT', 'admin_set_prod_type_instant');
 define('CALLBACK_ADMIN_SET_PROD_TYPE_MANUAL', 'admin_set_prod_type_manual');
+define('CALLBACK_ADMIN_FINISH_PROD_INFO', 'admin_finish_prod_info'); // New callback
+define('CALLBACK_ADMIN_FINISH_PROD_INSTANT_ITEMS', 'admin_finish_prod_instant_items'); // New callback
 
 // Admin Edit Product
 define('CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY', 'admin_edit_prod_select_category');

@@ -79,16 +79,171 @@ if (isset($update->message)) {
                     $user_state['new_product_price'] = $text;
                     $user_state['status'] = STATE_ADMIN_ADDING_PROD_INFO;
                     setUserState($user_id, $user_state);
-                    sendMessage($chat_id, "Enter product info for '{$user_state['new_product_name']}':");
+                    sendMessage($chat_id, "Enter product info for '{$user_state['new_product_name']}':\n\nSend your product description. When you are finished, click the \"Done\" button below or type /done_info.", json_encode(['inline_keyboard' => [[['text' => '✅ Done Entering Info', 'callback_data' => CALLBACK_ADMIN_FINISH_PROD_INFO ]], [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT ]]]]));
                     break;
                 case STATE_ADMIN_ADDING_PROD_INFO:
-                     $user_state['new_product_info'] = $text;
+                    // Check for /done_info command first
+                    if (strtolower(trim($text)) === '/done_info') {
+                        // Trigger the same logic as CALLBACK_ADMIN_FINISH_PROD_INFO would.
+                        // This requires moving the finalization logic to a function or handling it here.
+                        // For now, let's assume processCallbackQuery will be called or mimicked.
+                        // The actual transition logic will be in the callback handler for FINISH_PROD_INFO.
+                        // Here, we just acknowledge and wait for the callback part to handle the transition.
+                        // Or, more directly, call the transition logic.
+                        // Let's defer actual transition to CALLBACK_ADMIN_FINISH_PROD_INFO handler for cleaner separation.
+                        // So, if user types /done_info, we can inform them to click the button
+                        // or make the button effectively call a function that /done_info also calls.
+
+                        // For simplicity in this step, we'll just make /done_info a trigger for the next step directly here.
+                        // This means duplicating the logic that will also be in the callback.
+                        // A better approach is to have a shared function.
+                        // Let's refine this: the callback is primary. /done_info can be a text shortcut.
+                        // The callback handler will contain the main logic.
+                        // If /done_info is typed, we can simulate the callback action or just prompt to use button.
+
+                        // Let's go with: if /done_info, then proceed.
+                        // The logic to proceed will be implemented in step 2 (callback handler).
+                        // For now, just acknowledge the text if it's not /done_info.
+                        sendMessage($chat_id, "Product info entry complete. The next step will be triggered by the 'Done' button or its callback.");
+                        // It's better if this state *only* accumulates text, and the button/command *triggers* the finalization.
+                        // So, if text is /done_info, we just don't append it. The button press will handle moving forward.
+
+                        // Simpler: if user types /done_info, we call the same logic that the callback will.
+                        // This will be defined in Step 2. For now, let's assume that logic exists.
+                        // For this step, we just append text if it's not /done_info.
+                        // The prompt to use the button is already there.
+                        // So if they type /done_info, we effectively do nothing here, the button is the way.
+                        // This avoids duplicating the transition logic.
+                        // --- Updated logic for /done_info ---
+                        $current_info = trim($user_state['new_product_info'] ?? '');
+                        if (empty($current_info)) {
+                            // If product info is empty, prompt to add some before finishing.
+                            // The existing "Done" button also has this check in proceedToProductItemsOrId.
+                             sendMessage($chat_id, "⚠️ Product information cannot be empty. Please enter some information before typing /done_info or clicking the Done button.", json_encode(['inline_keyboard' => [[['text' => '✅ Done Entering Info', 'callback_data' => CALLBACK_ADMIN_FINISH_PROD_INFO ]], [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT ]]]]));
+                        } else {
+                            // Use original_message_id from state for editing, assuming it's the ID of the "Enter product info..." prompt
+                            // or the last "Info appended..." message sent by the bot.
+                            // It's important this message_id is the one that the user expects to be edited or replied to.
+                            $message_id_to_edit_for_done = $user_state['original_message_id'] ?? $message->message_id;
+                            // Fallback to current message_id might not be ideal if it's the user's /done_info message.
+                            // Best if original_message_id consistently tracks the bot's prompt.
+                            // For now, let's assume original_message_id is the main prompt that should be replaced.
+                            // However, the proceedTo... functions edit the message they are given.
+                            // The button callback uses $callback_query->message->message_id.
+                            // For /done_info, we should probably edit the *bot's last message* not the user's /done_info message.
+                            // This is tricky without storing the bot's last message ID reliably.
+                            // Let's assume the original_message_id is the one we want to replace with the next step's prompt.
+                            if (isset($user_state['original_message_id'])) {
+                                proceedToProductItemsOrId($user_id, $chat_id, $user_state['original_message_id'], $user_state);
+                            } else {
+                                // If no original_message_id, send a new message for the next step
+                                proceedToProductItemsOrId($user_id, $chat_id, null, $user_state); // Function needs to handle null message_id
+                            }
+                        }
+                        break; // Don't append "/done_info" to product info
+                    }
+
+                    if (!isset($user_state['new_product_info'])) {
+                        $user_state['new_product_info'] = $text;
+                    } else {
+                        $user_state['new_product_info'] .= "\n" . $text; // Append new info
+                    }
                     setUserState($user_id, $user_state);
-                    if ($user_state['new_product_type'] === 'instant') { /* ask for items */ }
-                    else { /* ask for ID */ }
+                    // Re-send the prompt with the "Done" button so it's always visible after each message.
+                    // Or, just send a confirmation "Info appended. Send more or click Done."
+                    sendMessage($chat_id, "Info appended. Send more, or click \"Done Entering Info\" when complete.", json_encode(['inline_keyboard' => [[['text' => '✅ Done Entering Info', 'callback_data' => CALLBACK_ADMIN_FINISH_PROD_INFO ]], [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT ]]]]));
                     break;
-                case STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS: /* ... */ break;
-                case STATE_ADMIN_ADDING_PROD_ID: /* ... */ break;
+                case STATE_ADMIN_ADDING_PROD_INSTANT_ITEMS:
+                    if (strtolower(trim($text)) === '/done_items') {
+                        // Logic to proceed to asking for Product ID will be in the callback handler
+                        // for CALLBACK_ADMIN_FINISH_PROD_INSTANT_ITEMS.
+                        // Here, we can just send a confirmation or do nothing if the button is preferred.
+                        // --- Updated logic for /done_items ---
+                        // Optional: Add a check here if new_product_items is empty, similar to /done_info.
+                        // proceedToProductId will be called.
+                        if (isset($user_state['original_message_id'])) {
+                             proceedToProductId($user_id, $chat_id, $user_state['original_message_id'], $user_state);
+                        } else {
+                            // Fallback to send new message if original_message_id is not set
+                            proceedToProductId($user_id, $chat_id, null, $user_state);
+                        }
+                        break; // Don't append "/done_items"
+                    }
+
+                    if (empty(trim($text))) {
+                        sendMessage($chat_id, "Item content cannot be empty. Please send valid item content or type /done_items (or click the button).", json_encode(['inline_keyboard' => [[['text' => '✅ Done Adding Items', 'callback_data' => CALLBACK_ADMIN_FINISH_PROD_INSTANT_ITEMS]], [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
+                        break;
+                    }
+
+                    if (!isset($user_state['new_product_items']) || !is_array($user_state['new_product_items'])) {
+                        $user_state['new_product_items'] = [];
+                    }
+                    $user_state['new_product_items'][] = $text;
+                    setUserState($user_id, $user_state);
+
+                    $item_count = count($user_state['new_product_items']);
+                    sendMessage($chat_id, "Item added ({$item_count} total). Send another item, or type /done_items (or click 'Done Adding Items').", json_encode(['inline_keyboard' => [[['text' => '✅ Done Adding Items', 'callback_data' => CALLBACK_ADMIN_FINISH_PROD_INSTANT_ITEMS]], [['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
+                    break;
+                case STATE_ADMIN_ADDING_PROD_ID:
+                    $product_id_candidate = trim($text);
+                    if (empty($product_id_candidate)) {
+                        sendMessage($chat_id, "Product ID cannot be empty. Please enter a unique ID.", json_encode(['inline_keyboard' => [[['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
+                        break;
+                    }
+                    // Validate for spaces or special characters other than underscore
+                    if (preg_match('/[\s\'"\/\\?&%#@!\^\*\(\)\+\=\-\[\]\{\}\|\`\~\<\>\,\.\:\;]/', $product_id_candidate) || strpos($product_id_candidate, ' ') !== false) {
+                         sendMessage($chat_id, "Product ID should not contain spaces or most special characters (underscores are allowed). E.g., `my_product_123`.", json_encode(['inline_keyboard' => [[['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
+                        break;
+                    }
+
+
+                    $category_key_for_id_check = $user_state['category_key'];
+                    global $products; // Ensure $products is accessible or load it
+                    if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
+
+                    if (isset($products[$category_key_for_id_check][$product_id_candidate])) {
+                        sendMessage($chat_id, "⚠️ Product ID '<b>".htmlspecialchars($product_id_candidate)."</b>' already exists in category '<b>".htmlspecialchars($category_key_for_id_check)."</b>'. Please enter a unique ID.", json_encode(['inline_keyboard' => [[['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]]), "HTML");
+                        break;
+                    }
+
+                    $user_state['new_product_id'] = $product_id_candidate;
+                    // All data collected, now finalize and save the product
+                    $new_product_data = [
+                        'name' => $user_state['new_product_name'],
+                        'type' => $user_state['new_product_type'],
+                        'price' => $user_state['new_product_price'],
+                        'info' => $user_state['new_product_info'] ?? '', // Ensure info exists
+                        'id' => $user_state['new_product_id'] // This is the new product ID itself
+                    ];
+                    if ($new_product_data['type'] === 'instant') {
+                        $new_product_data['items'] = $user_state['new_product_items'] ?? [];
+                    }
+
+                    // Call the finalization function (to be created in functions.php)
+                    if (finalizeProductAddition($user_id, $user_state['category_key'], $user_state['new_product_id'], $new_product_data)) {
+                        $success_message = "✅ Product '<b>" . htmlspecialchars($new_product_data['name']) . "</b>' (ID: ".htmlspecialchars($new_product_data['id']).") added successfully to category '".htmlspecialchars($user_state['category_key'])."'!";
+
+                        // Display product management menu again
+                        $prod_mgt_keyboard_after_add = [
+                            'inline_keyboard' => [
+                                [['text' => "➕ Add Another Product", 'callback_data' => CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY]],
+                                [['text' => "✏️ Edit Product", 'callback_data' => CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY]],
+                                [['text' => "➖ Remove Product", 'callback_data' => CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]],
+                                [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                            ]
+                        ];
+                        // Edit the original message if possible, otherwise send new
+                        if(isset($user_state['original_message_id'])) {
+                            editMessageText($chat_id, $user_state['original_message_id'], $success_message . "\n\n📦 Product Management 📦", json_encode($prod_mgt_keyboard_after_add), "HTML");
+                        } else {
+                            sendMessage($chat_id, $success_message . "\n\n📦 Product Management 📦", json_encode($prod_mgt_keyboard_after_add), "HTML");
+                        }
+                        clearUserState($user_id);
+                    } else {
+                        sendMessage($chat_id, "⚠️ An error occurred while saving the new product. Please check logs or try again.", json_encode(['inline_keyboard' => [[['text' => '« Cancel Product Addition', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
+                        // Optionally keep state for retry, or clear
+                    }
+                    break;
             }
         }
         // Admin manually adding prod for user
