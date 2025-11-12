@@ -186,32 +186,33 @@ function generateBotStatsText() {
 //  TELEGRAM API FUNCTIONS
 // ===================================================================
 function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
-    // error_log("START_MENU: generateDynamicMainMenuKeyboard called. Admin: " . ($is_admin_menu ? 'Yes' : 'No'));
     global $products;
     $products = readJsonFile(PRODUCTS_FILE);
+    $config = getBotConfig();
+    $columns = $config['main_menu_columns'] ?? 1;
 
-    $keyboard_rows = [];
-
+    $buttons = [];
     if (!empty($products)) {
         foreach ($products as $category_key => $category_items) {
             if (is_string($category_key) && !empty($category_key) && is_array($category_items)) {
                 $displayName = ucfirst(str_replace('_', ' ', $category_key));
-                $keyboard_rows[] = [['text' => "🛍️ " . htmlspecialchars($displayName), 'callback_data' => 'view_category_' . $category_key]];
+                $buttons[] = ['text' => "🛍️ " . htmlspecialchars($displayName), 'callback_data' => 'view_category_' . $category_key];
             } else {
                 error_log("START_MENU: Skipped invalid top-level item in products.json. Key: " . print_r($category_key, true) . " Items: " . print_r($category_items, true));
             }
         }
     }
 
-    $keyboard_rows[] = [['text' => "📦 محصولات من", 'callback_data' => (string)CALLBACK_MY_PRODUCTS]];
-    $keyboard_rows[] = [['text' => "💬 پشتیبانی", 'callback_data' => (string)CALLBACK_SUPPORT]];
+    $buttons[] = ['text' => "📦 محصولات من", 'callback_data' => (string)CALLBACK_MY_PRODUCTS];
+    $buttons[] = ['text' => "💬 پشتیبانی", 'callback_data' => (string)CALLBACK_SUPPORT];
 
     if ($is_admin_menu) {
-        $keyboard_rows[] = [['text' => "⚙️ Admin Panel", 'callback_data' => (string)CALLBACK_ADMIN_PANEL]];
+        $buttons[] = ['text' => "⚙️ Admin Panel", 'callback_data' => (string)CALLBACK_ADMIN_PANEL];
     }
 
+    $keyboard_rows = array_chunk($buttons, $columns);
+
     $final_keyboard_structure = ['inline_keyboard' => $keyboard_rows];
-    // error_log("START_MENU: Returning keyboard structure: " . print_r($final_keyboard_structure, true));
     return $final_keyboard_structure;
 }
 
@@ -423,10 +424,51 @@ function processCallbackQuery($callback_query) {
                     [['text' => "📦 Product Management", 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]],
                     [['text' => "🗂️ Category Management", 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]],
                     [['text' => "📊 View Bot Stats", 'callback_data' => CALLBACK_ADMIN_VIEW_STATS]],
+                    [['text' => "🎨 Main Menu UI", 'callback_data' => CALLBACK_ADMIN_MAIN_MENU_UI]],
                     [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]
                 ]
             ];
             editMessageText($chat_id, $message_id, "⚙️ Admin Panel ⚙️", json_encode($admin_panel_keyboard_def));
+            return;
+        }
+        elseif ($data === CALLBACK_ADMIN_MAIN_MENU_UI) {
+            $config = getBotConfig();
+            $current_cols = $config['main_menu_columns'] ?? 1;
+
+            $menu_ui_keyboard = [
+                'inline_keyboard' => [
+                    [
+                        ['text' => ($current_cols == 1 ? "✅ " : "") . "1 Column", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "1"],
+                        ['text' => ($current_cols == 2 ? "✅ " : "") . "2 Columns", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "2"],
+                        ['text' => ($current_cols == 3 ? "✅ " : "") . "3 Columns", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "3"],
+                    ],
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            editMessageText($chat_id, $message_id, "🎨 Main Menu Layout 🎨\n\nSelect the number of columns for the main menu buttons.", json_encode($menu_ui_keyboard));
+            return;
+        }
+        elseif (strpos($data, CALLBACK_ADMIN_SET_MENU_COLS_PREFIX) === 0) {
+            $parts = explode('_', $data);
+            $new_cols = (int)end($parts);
+
+            $config = getBotConfig();
+            $config['main_menu_columns'] = $new_cols;
+            saveBotConfig($config);
+
+            // Re-display the menu with the updated selection
+            $current_cols = $new_cols;
+            $menu_ui_keyboard = [
+                'inline_keyboard' => [
+                    [
+                        ['text' => ($current_cols == 1 ? "✅ " : "") . "1 Column", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "1"],
+                        ['text' => ($current_cols == 2 ? "✅ " : "") . "2 Columns", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "2"],
+                        ['text' => ($current_cols == 3 ? "✅ " : "") . "3 Columns", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "3"],
+                    ],
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            editMessageText($chat_id, $message_id, "✅ Main menu layout updated to {$new_cols} columns.", json_encode($menu_ui_keyboard));
             return;
         }
         elseif ($data === CALLBACK_ADMIN_CATEGORY_MANAGEMENT) {

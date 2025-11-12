@@ -68,6 +68,10 @@ define('CALLBACK_ADMIN_RP_CONF_NO_PREFIX', 'admin_rp_conf_no_');
 // Admin Stats
 define('CALLBACK_ADMIN_VIEW_STATS', 'admin_view_stats');
 
+// Main Menu UI (Admin)
+define('CALLBACK_ADMIN_MAIN_MENU_UI', 'admin_main_menu_ui');
+define('CALLBACK_ADMIN_SET_MENU_COLS_PREFIX', 'admin_set_menu_cols_');
+
 // Category Management (Admin) - New Constants
 define('CALLBACK_ADMIN_CATEGORY_MANAGEMENT', 'admin_category_management');
 define('CALLBACK_ADMIN_ADD_CATEGORY_PROMPT', 'admin_add_category_prompt');
