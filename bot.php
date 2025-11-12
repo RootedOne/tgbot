@@ -265,6 +265,49 @@ if (isset($update->message)) {
             }
         }
     }
+    // --- Admin is setting the manual layout ---
+    elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_SETTING_MANUAL_LAYOUT) {
+        $layout_str = trim($text);
+        $rows = explode("\n", $layout_str);
+        $new_layout = [];
+        foreach ($rows as $row) {
+            $new_layout[] = array_map('trim', explode(',', $row));
+        }
+
+        // Validate the layout
+        $products = readJsonFile(PRODUCTS_FILE);
+        $available_buttons = [];
+        if (!empty($products)) {
+            foreach ($products as $category_key => $category_items) {
+                if (is_string($category_key) && !empty($category_key) && is_array($category_items)) {
+                    $available_buttons[] = 'view_category_' . $category_key;
+                }
+            }
+        }
+        $available_buttons[] = CALLBACK_MY_PRODUCTS;
+        $available_buttons[] = CALLBACK_SUPPORT;
+        $available_buttons[] = CALLBACK_ADMIN_PANEL;
+
+        $invalid_buttons = [];
+        foreach ($new_layout as $row) {
+            foreach ($row as $button) {
+                if (!in_array($button, $available_buttons)) {
+                    $invalid_buttons[] = $button;
+                }
+            }
+        }
+
+        if (!empty($invalid_buttons)) {
+            sendMessage($chat_id, "⚠️ Invalid button identifiers: `" . implode('`, `', $invalid_buttons) . "`\nPlease try again.", null, 'Markdown');
+        } else {
+            $config = getBotConfig();
+            $config['main_menu_manual_layout'] = $new_layout;
+            $config['main_menu_layout_mode'] = 'manual'; // Set mode to manual
+            saveBotConfig($config);
+            clearUserState($user_id);
+            sendMessage($chat_id, "✅ Manual layout updated successfully.");
+        }
+    }
     // --- Admin is editing a product field ---
     elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_EDITING_PROD_FIELD) {
         $field_to_edit = $user_state['field_to_edit'];

@@ -24,6 +24,7 @@ define('STATE_AWAITING_RECEIPT', 'awaiting_receipt');
 define('STATE_ADMIN_ADDING_CATEGORY_NAME', 'state_admin_adding_category_name');
 define('STATE_ADMIN_EDITING_CATEGORY_NAME', 'state_admin_editing_category_name');
 define('STATE_ADMIN_MANUAL_SEND_SESSION', 'admin_manual_send_session'); // New state for admin sending manual product info
+define('STATE_ADMIN_SETTING_MANUAL_LAYOUT', 'admin_setting_manual_layout');
 // Note: 'admin_adding_prod_info_prompt' was a transient state name used before setting 'admin_adding_prod_info', so not making it a global constant.
 
 // --- Callback Data Prefixes/Actions ---
@@ -70,6 +71,8 @@ define('CALLBACK_ADMIN_VIEW_STATS', 'admin_view_stats');
 
 // Main Menu UI (Admin)
 define('CALLBACK_ADMIN_MAIN_MENU_UI', 'admin_main_menu_ui');
+define('CALLBACK_ADMIN_AUTO_LAYOUT_MENU', 'admin_auto_layout_menu');
+define('CALLBACK_ADMIN_MANUAL_LAYOUT_MENU', 'admin_manual_layout_menu');
 define('CALLBACK_ADMIN_SET_MENU_COLS_PREFIX', 'admin_set_menu_cols_');
 
 // Category Management (Admin) - New Constants

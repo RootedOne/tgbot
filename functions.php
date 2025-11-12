@@ -189,28 +189,44 @@ function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
     global $products;
     $products = readJsonFile(PRODUCTS_FILE);
     $config = getBotConfig();
-    $columns = $config['main_menu_columns'] ?? 1;
+    $layout_mode = $config['main_menu_layout_mode'] ?? 'auto';
 
-    $buttons = [];
+    $all_buttons = [];
     if (!empty($products)) {
         foreach ($products as $category_key => $category_items) {
             if (is_string($category_key) && !empty($category_key) && is_array($category_items)) {
                 $displayName = ucfirst(str_replace('_', ' ', $category_key));
-                $buttons[] = ['text' => "🛍️ " . htmlspecialchars($displayName), 'callback_data' => 'view_category_' . $category_key];
+                $all_buttons['view_category_' . $category_key] = ['text' => "🛍️ " . htmlspecialchars($displayName), 'callback_data' => 'view_category_' . $category_key];
             } else {
                 error_log("START_MENU: Skipped invalid top-level item in products.json. Key: " . print_r($category_key, true) . " Items: " . print_r($category_items, true));
             }
         }
     }
 
-    $buttons[] = ['text' => "📦 محصولات من", 'callback_data' => (string)CALLBACK_MY_PRODUCTS];
-    $buttons[] = ['text' => "💬 پشتیبانی", 'callback_data' => (string)CALLBACK_SUPPORT];
+    $all_buttons[CALLBACK_MY_PRODUCTS] = ['text' => "📦 محصولات من", 'callback_data' => (string)CALLBACK_MY_PRODUCTS];
+    $all_buttons[CALLBACK_SUPPORT] = ['text' => "💬 پشتیبانی", 'callback_data' => (string)CALLBACK_SUPPORT];
 
     if ($is_admin_menu) {
-        $buttons[] = ['text' => "⚙️ Admin Panel", 'callback_data' => (string)CALLBACK_ADMIN_PANEL];
+        $all_buttons[CALLBACK_ADMIN_PANEL] = ['text' => "⚙️ Admin Panel", 'callback_data' => (string)CALLBACK_ADMIN_PANEL];
     }
 
-    $keyboard_rows = array_chunk($buttons, $columns);
+    if ($layout_mode === 'manual' && isset($config['main_menu_manual_layout'])) {
+        $keyboard_rows = [];
+        foreach ($config['main_menu_manual_layout'] as $row) {
+            $keyboard_row = [];
+            foreach ($row as $button_key) {
+                if (isset($all_buttons[$button_key])) {
+                    $keyboard_row[] = $all_buttons[$button_key];
+                }
+            }
+            if (!empty($keyboard_row)) {
+                $keyboard_rows[] = $keyboard_row;
+            }
+        }
+    } else {
+        $columns = $config['main_menu_columns'] ?? 1;
+        $keyboard_rows = array_chunk(array_values($all_buttons), $columns);
+    }
 
     $final_keyboard_structure = ['inline_keyboard' => $keyboard_rows];
     return $final_keyboard_structure;
@@ -433,6 +449,54 @@ function processCallbackQuery($callback_query) {
         }
         elseif ($data === CALLBACK_ADMIN_MAIN_MENU_UI) {
             $config = getBotConfig();
+            $layout_mode = $config['main_menu_layout_mode'] ?? 'auto'; // default to auto
+
+            $menu_ui_keyboard = [
+                'inline_keyboard' => [
+                    [
+                        ['text' => ($layout_mode === 'auto' ? "✅ " : "") . "Automatic Layout", 'callback_data' => CALLBACK_ADMIN_AUTO_LAYOUT_MENU],
+                        ['text' => ($layout_mode === 'manual' ? "✅ " : "") . "Manual Layout", 'callback_data' => CALLBACK_ADMIN_MANUAL_LAYOUT_MENU],
+                    ],
+                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                ]
+            ];
+            editMessageText($chat_id, $message_id, "🎨 Main Menu Layout 🎨\n\nChoose the layout mode for the main menu.", json_encode($menu_ui_keyboard));
+            return;
+        }
+        elseif ($data === CALLBACK_ADMIN_MANUAL_LAYOUT_MENU) {
+            setUserState($user_id, ['status' => STATE_ADMIN_SETTING_MANUAL_LAYOUT, 'message_id' => $message_id]);
+
+            $products = readJsonFile(PRODUCTS_FILE);
+            $available_buttons = [];
+            if (!empty($products)) {
+                foreach ($products as $category_key => $category_items) {
+                    if (is_string($category_key) && !empty($category_key) && is_array($category_items)) {
+                        $available_buttons[] = 'view_category_' . $category_key;
+                    }
+                }
+            }
+            $available_buttons[] = CALLBACK_MY_PRODUCTS;
+            $available_buttons[] = CALLBACK_SUPPORT;
+            $available_buttons[] = CALLBACK_ADMIN_PANEL;
+
+            $config = getBotConfig();
+            $current_layout = $config['main_menu_manual_layout'] ?? [];
+            $current_layout_str = '';
+            foreach ($current_layout as $row) {
+                $current_layout_str .= implode(', ', $row) . "\n";
+            }
+
+            $message = "🎨 Manual Layout 🎨\n\n";
+            $message .= "Available buttons:\n`" . implode("`\n`", $available_buttons) . "`\n\n";
+            $message .= "Current layout:\n`" . ($current_layout_str ?: 'Not set') . "`\n\n";
+            $message .= "To set the layout, send a message where each line represents a row of buttons, and button identifiers are separated by commas.\n\n";
+            $message .= "For example:\n`view_category_spotify_plan, view_category_ssh_plan`\n`my_products, support`\n`admin_panel`";
+
+            editMessageText($chat_id, $message_id, $message, json_encode(['inline_keyboard' => [[['text' => '« Back to Main Menu UI', 'callback_data' => CALLBACK_ADMIN_MAIN_MENU_UI]]]]), 'Markdown');
+            return;
+        }
+        elseif ($data === CALLBACK_ADMIN_AUTO_LAYOUT_MENU) {
+            $config = getBotConfig();
             $current_cols = $config['main_menu_columns'] ?? 1;
 
             $menu_ui_keyboard = [
@@ -442,10 +506,10 @@ function processCallbackQuery($callback_query) {
                         ['text' => ($current_cols == 2 ? "✅ " : "") . "2 Columns", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "2"],
                         ['text' => ($current_cols == 3 ? "✅ " : "") . "3 Columns", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "3"],
                     ],
-                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                    [['text' => '« Back to Main Menu UI', 'callback_data' => CALLBACK_ADMIN_MAIN_MENU_UI]]
                 ]
             ];
-            editMessageText($chat_id, $message_id, "🎨 Main Menu Layout 🎨\n\nSelect the number of columns for the main menu buttons.", json_encode($menu_ui_keyboard));
+            editMessageText($chat_id, $message_id, "🎨 Automatic Layout 🎨\n\nSelect the number of columns for the main menu buttons.", json_encode($menu_ui_keyboard));
             return;
         }
         elseif (strpos($data, CALLBACK_ADMIN_SET_MENU_COLS_PREFIX) === 0) {
@@ -454,6 +518,7 @@ function processCallbackQuery($callback_query) {
 
             $config = getBotConfig();
             $config['main_menu_columns'] = $new_cols;
+            $config['main_menu_layout_mode'] = 'auto'; // Set mode to auto
             saveBotConfig($config);
 
             // Re-display the menu with the updated selection
@@ -465,10 +530,10 @@ function processCallbackQuery($callback_query) {
                         ['text' => ($current_cols == 2 ? "✅ " : "") . "2 Columns", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "2"],
                         ['text' => ($current_cols == 3 ? "✅ " : "") . "3 Columns", 'callback_data' => CALLBACK_ADMIN_SET_MENU_COLS_PREFIX . "3"],
                     ],
-                    [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
+                    [['text' => '« Back to Main Menu UI', 'callback_data' => CALLBACK_ADMIN_MAIN_MENU_UI]]
                 ]
             ];
-            editMessageText($chat_id, $message_id, "✅ Main menu layout updated to {$new_cols} columns.", json_encode($menu_ui_keyboard));
+            editMessageText($chat_id, $message_id, "✅ Automatic layout updated to {$new_cols} columns.", json_encode($menu_ui_keyboard));
             return;
         }
         elseif ($data === CALLBACK_ADMIN_CATEGORY_MANAGEMENT) {
