@@ -3,7 +3,7 @@
 // All bot configurations.
 
 // --- Bot Token ---
-define('API_TOKEN', '7191984881:AAH1BBX3S6SKNCKGkjKnKZj2OTto_bfg2ZI'); // Replace with your actual token
+define('API_TOKEN', '7823461492:AAFGCifVt6_5CtnRzFjDZr3DAk2lZaKNuhI'); // Replace with your actual token
 
 // --- Admin Configuration ---
 // Admin list is now managed in bot_config_data.json
@@ -24,6 +24,7 @@ define('STATE_AWAITING_RECEIPT', 'awaiting_receipt');
 define('STATE_ADMIN_ADDING_CATEGORY_NAME', 'state_admin_adding_category_name');
 define('STATE_ADMIN_EDITING_CATEGORY_NAME', 'state_admin_editing_category_name');
 define('STATE_ADMIN_MANUAL_SEND_SESSION', 'admin_manual_send_session'); // New state for admin sending manual product info
+define('STATE_ADMIN_SETTING_MANUAL_LAYOUT', 'admin_setting_manual_layout');
 // Note: 'admin_adding_prod_info_prompt' was a transient state name used before setting 'admin_adding_prod_info', so not making it a global constant.
 
 // --- Callback Data Prefixes/Actions ---
@@ -67,6 +68,12 @@ define('CALLBACK_ADMIN_RP_CONF_NO_PREFIX', 'admin_rp_conf_no_');
 
 // Admin Stats
 define('CALLBACK_ADMIN_VIEW_STATS', 'admin_view_stats');
+
+// Main Menu UI (Admin)
+define('CALLBACK_ADMIN_MAIN_MENU_UI', 'admin_main_menu_ui');
+define('CALLBACK_ADMIN_AUTO_LAYOUT_MENU', 'admin_auto_layout_menu');
+define('CALLBACK_ADMIN_MANUAL_LAYOUT_MENU', 'admin_manual_layout_menu');
+define('CALLBACK_ADMIN_SET_MENU_COLS_PREFIX', 'admin_set_menu_cols_');
 
 // Category Management (Admin) - New Constants
 define('CALLBACK_ADMIN_CATEGORY_MANAGEMENT', 'admin_category_management');

@@ -33,7 +33,7 @@ if (isset($update->message)) {
     // Check if user is banned
     $user_specific_data = getUserData($user_id);
     if ($user_specific_data['is_banned']) {
-        sendMessage($chat_id, "⚠️ You are banned from using this bot.");
+        sendMessage($chat_id, "🚫 متأسفم! فعلاً دسترسی‌ت به ربات بسته شده.");
         exit();
     }
 
@@ -138,7 +138,7 @@ if (isset($update->message)) {
             clearUserState($user_id); 
             sendMessage($admin_chat_id, "✅ Custom product '" . htmlspecialchars($product_description) . "' has been added to user `{$target_user_id}`'s purchases.", null, 'Markdown');
             if ($target_user_id != $user_id) { 
-                 sendMessage($target_user_id, "🎁 A new item has been manually added to your purchases by an admin: '" . htmlspecialchars($product_description) . "'. You can see it in 'My Products'.");
+                 sendMessage($target_user_id, "🛍 ادمین یه محصول جدید برات اضافه کرده:\n«" . htmlspecialchars($product_description) . "»\nمی‌تونی از بخش «محصولات من» ببینیش 😎");
             }
         }
     }
@@ -263,6 +263,49 @@ if (isset($update->message)) {
                     // User remains in STATE_ADMIN_ADDING_CATEGORY_NAME to allow retry or cancel.
                 }
             }
+        }
+    }
+    // --- Admin is setting the manual layout ---
+    elseif ($is_admin && is_array($user_state) && $user_state['status'] === STATE_ADMIN_SETTING_MANUAL_LAYOUT) {
+        $layout_str = trim($text);
+        $rows = explode("\n", $layout_str);
+        $new_layout = [];
+        foreach ($rows as $row) {
+            $new_layout[] = array_map('trim', explode(',', $row));
+        }
+
+        // Validate the layout
+        $products = readJsonFile(PRODUCTS_FILE);
+        $available_buttons = [];
+        if (!empty($products)) {
+            foreach ($products as $category_key => $category_items) {
+                if (is_string($category_key) && !empty($category_key) && is_array($category_items)) {
+                    $available_buttons[] = 'view_category_' . $category_key;
+                }
+            }
+        }
+        $available_buttons[] = CALLBACK_MY_PRODUCTS;
+        $available_buttons[] = CALLBACK_SUPPORT;
+        $available_buttons[] = CALLBACK_ADMIN_PANEL;
+
+        $invalid_buttons = [];
+        foreach ($new_layout as $row) {
+            foreach ($row as $button) {
+                if (!in_array($button, $available_buttons)) {
+                    $invalid_buttons[] = $button;
+                }
+            }
+        }
+
+        if (!empty($invalid_buttons)) {
+            sendMessage($chat_id, "⚠️ Invalid button identifiers: `" . implode('`, `', $invalid_buttons) . "`\nPlease try again.", null, 'Markdown');
+        } else {
+            $config = getBotConfig();
+            $config['main_menu_manual_layout'] = $new_layout;
+            $config['main_menu_layout_mode'] = 'manual'; // Set mode to manual
+            saveBotConfig($config);
+            clearUserState($user_id);
+            sendMessage($chat_id, "✅ Manual layout updated successfully.");
         }
     }
     // --- Admin is editing a product field ---
@@ -452,7 +495,7 @@ if (isset($update->message)) {
             }
 
             sendMessage($admin_chat_id_session, "✅ Manual send session ended with User ID: {$target_user_id_session}.");
-            sendMessage($target_user_id_session, "The admin has concluded this delivery session.");
+            sendMessage($target_user_id_session, "✅ ادمین این سشن  رو تموم کرد.");
 
             // Update the original admin message caption (receipt photo)
             $original_admin_msg_id = $admin_state_data['original_admin_msg_id'] ?? null;
@@ -527,12 +570,12 @@ if (isset($update->message)) {
             } else {
                 // Admin is no longer in session with this user, or state is inconsistent.
                 // Inform user, clear their state.
-                sendMessage($chat_id, "The admin is no longer in this delivery session. If you have further questions, please use the main support option.");
+                sendMessage($chat_id, "👋 ادمین از سشن تحویل خارج شد.\nاگه سوالی داری، از بخش پشتیبانی اصلی استفاده کن ✉️");
                 clearUserState($user_id);
             }
         } else {
             // User state is corrupted or admin_id missing.
-            sendMessage($chat_id, "There was an issue with the delivery session. Please contact support if needed.");
+            sendMessage($chat_id, "⚠️ یه مشکلی توی سشن تحویل پیش اومده.\nاگه لازمه، با پشتیبانی تماس بگیر 💬");
             clearUserState($user_id);
             error_log("MANUAL_SEND_ERROR: User {$user_id} in 'in_manual_send_session_with_admin' but admin_id is missing in their state.");
         }
@@ -553,14 +596,14 @@ if (isset($update->message)) {
                 clearUserState($user_id);
                 clearUserState($current_chat_partner);
                 sendMessage($user_id, "☑️ Chat ended with user $current_chat_partner.");
-                sendMessage($current_chat_partner, "☑️ The support chat has been ended by the admin.");
+                sendMessage($current_chat_partner, "❌ ادمین چت پشتیبانی رو بست.");
             }
         } 
         elseif ($is_admin) {
             bot('copyMessage', ['from_chat_id' => $chat_id, 'chat_id' => $user_state['chatting_with'], 'message_id' => $message->message_id]);
         } 
         else {
-            sendMessage($chat_id, "↳ Your message has been sent to the admin.");
+            sendMessage($chat_id, "📨 پیامت فرستاده شد برای ادمین.");
             bot('copyMessage', ['from_chat_id' => $chat_id, 'chat_id' => $user_state['chatting_with'], 'message_id' => $message->message_id]);
         }
     }
@@ -570,8 +613,8 @@ if (isset($update->message)) {
             if(isset($user_state['message_id'])){ // If a previous message had a "Cancel" button for support
                 // Check if the text is /cancel
                 if (strtolower($text) === '/cancel') {
-                    editMessageText($chat_id, $user_state['message_id'], "Support request cancelled.", null); // Remove buttons from original prompt
-                    sendMessage($chat_id, "Your support request has been cancelled.");
+                    editMessageText($chat_id, $user_state['message_id'], "🚫 درخواست پشتیبانی لغو شد.", null); // Remove buttons from original prompt
+                    sendMessage($chat_id, "❌ درخواست پشتیبانی‌ت لغو شد.");
                     clearUserState($user_id);
                     exit();
                 }
@@ -589,7 +632,7 @@ if (isset($update->message)) {
             } else {
                 error_log("No admins configured to receive support message from user $user_id");
             }
-            sendMessage($chat_id, "✅ Thank you! Your message has been sent to the support team.");
+            sendMessage($chat_id, "🙏 مرسی! پیامت رفت برای تیم پشتیبانی.");
             clearUserState($user_id);
         }
         // Admin command: /addprod <USERID>
@@ -608,13 +651,13 @@ if (isset($update->message)) {
             setUserState($user_id, ['chatting_with' => $customer_id]);
             setUserState($customer_id, ['chatting_with' => $user_id]);
             sendMessage($user_id, "✅ You are now connected with user `$customer_id`. Send `/e$customer_id` to end the chat.", null, 'Markdown');
-            sendMessage($customer_id, "✅ An admin has connected with you. You can reply here directly.");
+            sendMessage($customer_id, "💬 ادمین بهت وصل شده!\nمی‌تونی مستقیم از همین‌جا جواب بدی 😄");
         }
         // User sends /start
         elseif ($text === "/start") {
             error_log("START_CMD: /start command received for chat_id: {$chat_id}, user_id: {$user_id}, is_admin: " . ($is_admin ? 'Yes' : 'No')); // LOG START_CMD
             $first_name = $message->from->first_name;
-            $welcome_text = "Hello, " . htmlspecialchars($first_name) . "! Welcome to the shop.\n\nPlease select an option:";
+            $welcome_text = "👋 سلام " . htmlspecialchars($first_name) . "! خوش اومدی به فروشگاه 💫\nلطفاً یکی از گزینه‌ها رو انتخاب کن 👇";
 
             $keyboard_array = generateDynamicMainMenuKeyboard($is_admin); // New dynamic keyboard
             error_log("START_CMD: Keyboard array received: " . print_r($keyboard_array, true)); // LOG KEYBOARD_ARRAY
@@ -640,10 +683,10 @@ if (isset($update->message)) {
         // Pass category_key and product_id to forwardPhotoToAdmin
         forwardPhotoToAdmin($photo_file_id, $user_info, $user_id, $category_key, $product_id);
 
-                sendMessage($chat_id, "✅ Thank you! Your receipt has been submitted and is now under review.");
+                sendMessage($chat_id, "🧾 مرسی! رسیدت ارسال شد و الان داره بررسی میشه.");
         clearUserState($user_id);
             } else {
-                sendMessage($chat_id, "I've received your photo, but I wasn't expecting one. If you need help, please use the Support button.");
+                sendMessage($chat_id, "📸 عکست رسید، ولی الان منتظر عکس نبودم 😅\nاگه کمک می‌خوای، از دکمه‌ی پشتیبانی استفاده کن ❤️");
             }
         }
     }
