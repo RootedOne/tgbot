@@ -3,7 +3,7 @@
 // All bot configurations.
 
 // --- Bot Token ---
-define('API_TOKEN', '7823461492:AAFGCifVt6_5CtnRzFjDZr3DAk2lZaKNuhI'); // Replace with your actual token
+define('API_TOKEN', '7954827027:AAFBRf86q1pv6Gf0L4sUlrKQjaSubSqNtEk'); // Replace with your actual token
 
 // --- Admin Configuration ---
 // Admin list is now managed in bot_config_data.json
