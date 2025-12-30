@@ -38,7 +38,9 @@ class AdminController
 
     public function handleCallback(int $chatId, int $messageId, string $data, int $userId)
     {
-        if ($data === CALLBACK_ADMIN_PROD_MANAGEMENT) {
+        if ($data === CALLBACK_ADMIN_PANEL) {
+            $this->showPanel($chatId, $messageId);
+        } elseif ($data === CALLBACK_ADMIN_PROD_MANAGEMENT) {
             $this->showProductManagement($chatId, $messageId);
         } elseif ($data === CALLBACK_ADMIN_CATEGORY_MANAGEMENT) {
             $this->showCategoryManagement($chatId, $messageId);
