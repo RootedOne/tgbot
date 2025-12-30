@@ -30,8 +30,9 @@ class ShopController
         $this->bot->sendMessage($chatId, $text, $keyboard);
     }
 
-    public function handleBackToMain(int $chatId, int $messageId, string $firstName, bool $isAdmin)
+    public function handleBackToMain(int $chatId, int $messageId, string $firstName, bool $isAdmin, int $userId)
     {
+        $this->userRepo->clearState($userId);
         $text = "👋 سلام " . htmlspecialchars($firstName) . "! خوش برگشتی به منوی اصلی 💫\nلطفاً یکی از گزینه‌ها رو انتخاب کن 👇";
         $keyboard = $this->keyboardHelper->generateMainMenu($isAdmin);
         $this->bot->editMessageText($chatId, $messageId, $text, $keyboard);

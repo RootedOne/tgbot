@@ -82,7 +82,7 @@ class Router
 
         // --- User Callbacks ---
         if ($data === CALLBACK_BACK_TO_MAIN) {
-            $this->shopController->handleBackToMain($chatId, $messageId, $firstName, $isAdmin);
+            $this->shopController->handleBackToMain($chatId, $messageId, $firstName, $isAdmin, $userId);
             return;
         }
 
@@ -210,7 +210,8 @@ class Router
 
             if ($status === 'in_manual_send_session_with_admin') {
                 if (isset($state['admin_id'])) {
-                    $this->bot->copyMessage($state['admin_id'], $chatId, $message->message_id);
+                    // Forward FROM user ($chatId) TO admin ($state['admin_id'])
+                    $this->bot->copyMessage($chatId, $state['admin_id'], $message->message_id);
                 }
                 return;
             }

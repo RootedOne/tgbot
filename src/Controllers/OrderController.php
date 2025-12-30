@@ -104,15 +104,22 @@ class OrderController
         elseif ($isReject) $prefix = CALLBACK_REJECT_PAYMENT_PREFIX;
 
         $payload = substr($data, strlen($prefix));
-        // Simple parsing assuming no underscores in keys? No, keys have underscores.
-        // Format: USERID_CATKEY_PRODID. UserID is int.
-        // Find first underscore
+
+        // Format: USERID_CATKEY_PRODID. UserID is strictly numeric.
         $firstUS = strpos($payload, '_');
         $targetUserId = substr($payload, 0, $firstUS);
-        $rest = substr($payload, $firstUS + 1);
-        $lastUS = strrpos($rest, '_');
-        $catKey = substr($rest, 0, $lastUS);
-        $prodId = substr($rest, $lastUS + 1);
+        $compositeKey = substr($payload, $firstUS + 1); // CATKEY_PRODID
+
+        // Use parsing logic to handle underscores correctly
+        $parsed = $this->productRepo->parseCompositeKey($compositeKey);
+
+        if (!$parsed) {
+            $this->bot->sendMessage($adminChatId, "⚠️ Error parsing product details from payment callback.");
+            return;
+        }
+
+        $catKey = $parsed['category'];
+        $prodId = $parsed['product'];
 
         $product = $this->productRepo->getProduct($catKey, $prodId);
         $prodName = $product['name'] ?? 'Unknown';

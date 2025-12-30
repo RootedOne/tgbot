@@ -519,7 +519,36 @@ class AdminController
 
     public function showStats($chatId, $messageId)
     {
-        $text = "📊 Stats: [See older bot logic for implementation]";
+        $productsData = $this->productRepo->getAllCategories();
+        $totalProducts = 0;
+        $catLines = [];
+
+        foreach ($productsData as $catKey) {
+            $prods = $this->productRepo->getProductsByCategory($catKey);
+            $count = count($prods);
+            $totalProducts += $count;
+            $catLines[] = "  - " . ucfirst(str_replace('_', ' ', $catKey)) . ": $count";
+        }
+
+        // Need access to raw purchases for totals
+        // Since UserRepo abstracts per-user, we need a method to get all purchases or iterate all users.
+        // For efficiency in this simple file-based system, let's assume we can add a method to UserRepo or just read the file here via a new Repo method.
+        // Let's add countAllUsers and getGlobalStats to UserRepo for cleaner access.
+        $stats = $this->userRepo->getGlobalStats();
+
+        $text = "📊 <b>Bot Statistics</b> 📊\n\n";
+        $text .= "📦 <b>Products:</b>\n";
+        $text .= "▪️ Total: $totalProducts\n";
+        $text .= implode("\n", $catLines) . "\n\n";
+
+        $text .= "👤 <b>Users:</b>\n";
+        $text .= "▪️ Total: " . $stats['total_users'] . "\n";
+        $text .= "▪️ Banned: " . $stats['banned_users'] . "\n\n";
+
+        $text .= "💳 <b>Sales:</b>\n";
+        $text .= "▪️ Total Orders: " . $stats['total_orders'] . "\n";
+        $text .= "▪️ Total Volume: $" . number_format($stats['total_volume'], 2);
+
         $kb = json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PANEL]]]]);
         $this->bot->editMessageText($chatId, $messageId, $text, $kb);
     }

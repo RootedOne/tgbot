@@ -116,4 +116,37 @@ class UserRepository
         }
         return false;
     }
+
+    public function getGlobalStats(): array
+    {
+        $userData = $this->storage->read($this->dataFile);
+        $purchases = $this->storage->read($this->purchasesFile);
+
+        $totalUsers = count($userData);
+        $bannedUsers = 0;
+        foreach ($userData as $u) {
+            if (!empty($u['is_banned'])) $bannedUsers++;
+        }
+
+        $totalOrders = 0;
+        $totalVolume = 0.0;
+
+        foreach ($purchases as $userOrders) {
+            if (is_array($userOrders)) {
+                $totalOrders += count($userOrders);
+                foreach ($userOrders as $order) {
+                    if (isset($order['price']) && is_numeric($order['price'])) {
+                        $totalVolume += (float)$order['price'];
+                    }
+                }
+            }
+        }
+
+        return [
+            'total_users' => $totalUsers,
+            'banned_users' => $bannedUsers,
+            'total_orders' => $totalOrders,
+            'total_volume' => $totalVolume
+        ];
+    }
 }
