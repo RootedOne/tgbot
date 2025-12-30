@@ -53,7 +53,7 @@ class ShopController
         foreach ($products as $id => $details) {
             $name = $details['name'];
             $price = $details['price'];
-            $keyboard['inline_keyboard'][] = [['text' => "{$name} - \${$price}", 'callback_data' => "{$categoryKey}_{$id}"]];
+            $keyboard['inline_keyboard'][] = [['text' => "{$name} - {$price} تومان", 'callback_data' => "{$categoryKey}_{$id}"]];
         }
         $keyboard['inline_keyboard'][] = [['text' => '🏠 برگشت به منوی اصلی', 'callback_data' => CALLBACK_BACK_TO_MAIN]];
 
@@ -70,7 +70,7 @@ class ShopController
         }
 
         $text = "🛍️ محصول: " . htmlspecialchars($product['name']) . "\n";
-        $text .= "💰 قیمت: $" . htmlspecialchars($product['price']) . "\n";
+        $text .= "💰 قیمت: " . htmlspecialchars($product['price']) . " تومان\n";
         $text .= "ℹ️ توضیحات: " . nl2br(htmlspecialchars($product['info'] ?? 'N/A')) . "\n\n";
         $text .= "می‌خوای این محصول رو بخری؟ 💳";
 
@@ -121,7 +121,7 @@ class ShopController
 
         $text = "📦 محصول: " . htmlspecialchars($item['product_name']) . "\n";
         $text .= "🗓 تاریخ: " . ($item['date'] ?? 'N/A') . "\n";
-        $text .= "💵 قیمت: $" . ($item['price'] ?? 'N/A') . "\n\n";
+        $text .= "💵 قیمت: " . ($item['price'] ?? 'N/A') . " تومان\n\n";
 
         if (!empty($item['delivered_item_content'])) {
             $text .= "📄 جزئیات:\n<code>" . htmlspecialchars($item['delivered_item_content']) . "</code>";

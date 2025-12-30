@@ -547,7 +547,7 @@ class AdminController
 
         $text .= "💳 <b>Sales:</b>\n";
         $text .= "▪️ Total Orders: " . $stats['total_orders'] . "\n";
-        $text .= "▪️ Total Volume: $" . number_format($stats['total_volume'], 2);
+        $text .= "▪️ Total Volume: " . number_format($stats['total_volume']) . " تومان";
 
         $kb = json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PANEL]]]]);
         $this->bot->editMessageText($chatId, $messageId, $text, $kb);

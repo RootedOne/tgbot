@@ -41,7 +41,7 @@ class OrderController
         ]);
 
         $payment = $this->config->getPaymentDetails();
-        $text = "💳 برای خرید <b>" . htmlspecialchars($product['name']) . "</b> ($" . htmlspecialchars($product['price']) . ") مبلغ رو واریز کن:\n\n";
+        $text = "💳 برای خرید <b>" . htmlspecialchars($product['name']) . "</b> (" . htmlspecialchars($product['price']) . " تومان) مبلغ رو واریز کن:\n\n";
         $text .= "💳 کارت: `" . htmlspecialchars($payment['card_number']) . "`\n";
         $text .= "👤 نام: `" . htmlspecialchars($payment['card_holder']) . "`\n\n";
         $text .= "بعد از پرداخت، عکس رسید رو بفرست.\nبرای لغو: /cancel";
@@ -64,7 +64,7 @@ class OrderController
         $catKey = $state['category_key'];
         $prodId = $state['product_id'];
 
-        $adminMsg = "🧾 New Receipt\n\n▪️ Product: $prodName\n▪️ Price: $$price\n\n👤 User: $fullName (@$userName)\nID: `$userId`";
+        $adminMsg = "🧾 New Receipt\n\n▪️ Product: $prodName\n▪️ Price: $price تومان\n\n👤 User: $fullName (@$userName)\nID: `$userId`";
 
         $product = $this->productRepo->getProduct($catKey, $prodId);
         $type = $product['type'] ?? 'manual';
