@@ -122,4 +122,25 @@ class ProductRepository
         }
         return false;
     }
+
+    public function parseCompositeKey(string $compositeKey): ?array
+    {
+        $this->load();
+        $categories = array_keys($this->products);
+
+        // Sort by length descending to match longest category name first
+        usort($categories, function($a, $b) {
+            return strlen($b) - strlen($a);
+        });
+
+        foreach ($categories as $cat) {
+            if (strpos($compositeKey, $cat . '_') === 0) {
+                $prodId = substr($compositeKey, strlen($cat) + 1);
+                if ($prodId !== false && $prodId !== '') {
+                    return ['category' => $cat, 'product' => $prodId];
+                }
+            }
+        }
+        return null;
+    }
 }

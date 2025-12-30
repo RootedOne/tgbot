@@ -59,8 +59,10 @@ class AdminController
              $catKey = substr($data, strlen(CALLBACK_ADMIN_EP_SCAT_PREFIX));
              $this->showSelectProductForEdit($chatId, $messageId, $catKey);
         } elseif (strpos($data, CALLBACK_ADMIN_EP_SPRO_PREFIX) === 0) {
-             if (preg_match('/^' . preg_quote(CALLBACK_ADMIN_EP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-                 $this->showEditProductOptions($chatId, $messageId, $matches[1], $matches[2]);
+             $composite = substr($data, strlen(CALLBACK_ADMIN_EP_SPRO_PREFIX));
+             $parsed = $this->productRepo->parseCompositeKey($composite);
+             if ($parsed) {
+                 $this->showEditProductOptions($chatId, $messageId, $parsed['category'], $parsed['product']);
              }
         } elseif (strpos($data, CALLBACK_ADMIN_EDIT_NAME_PREFIX) === 0) {
              $this->startEditField($userId, $chatId, $messageId, $data, 'name');
@@ -69,20 +71,35 @@ class AdminController
         } elseif (strpos($data, CALLBACK_ADMIN_EDIT_INFO_PREFIX) === 0) {
              $this->startEditField($userId, $chatId, $messageId, $data, 'info');
         } elseif (strpos($data, CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX) === 0) {
-             if (preg_match('/^' . preg_quote(CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-                 $this->showInstantItemsManager($chatId, $messageId, $matches[1], $matches[2]);
+             $composite = substr($data, strlen(CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX));
+             $parsed = $this->productRepo->parseCompositeKey($composite);
+             if ($parsed) {
+                 $this->showInstantItemsManager($chatId, $messageId, $parsed['category'], $parsed['product']);
              }
         } elseif (strpos($data, CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX) === 0) {
-             if (preg_match('/^' . preg_quote(CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-                 $this->startAddInstantItemFlow($userId, $chatId, $messageId, $matches[1], $matches[2]);
+             $composite = substr($data, strlen(CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX));
+             $parsed = $this->productRepo->parseCompositeKey($composite);
+             if ($parsed) {
+                 $this->startAddInstantItemFlow($userId, $chatId, $messageId, $parsed['category'], $parsed['product']);
              }
         } elseif (strpos($data, CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX) === 0) {
-             if (preg_match('/^' . preg_quote(CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-                 $this->showRemoveInstantItemList($chatId, $messageId, $matches[1], $matches[2]);
+             $composite = substr($data, strlen(CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX));
+             $parsed = $this->productRepo->parseCompositeKey($composite);
+             if ($parsed) {
+                 $this->showRemoveInstantItemList($chatId, $messageId, $parsed['category'], $parsed['product']);
              }
         } elseif (strpos($data, CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX) === 0) {
-             if (preg_match('/^' . preg_quote(CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX, '/') . '(.+)_([^_]+)_(\d+)$/', $data, $matches)) {
-                 $this->removeInstantItem($chatId, $messageId, $matches[1], $matches[2], (int)$matches[3]);
+             $compositeFull = substr($data, strlen(CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX));
+             // Format: CAT_PROD_INDEX. Index is numeric.
+             // We can find the last underscore.
+             $lastUS = strrpos($compositeFull, '_');
+             if ($lastUS !== false) {
+                 $index = substr($compositeFull, $lastUS + 1);
+                 $compositeKey = substr($compositeFull, 0, $lastUS);
+                 $parsed = $this->productRepo->parseCompositeKey($compositeKey);
+                 if ($parsed && is_numeric($index)) {
+                     $this->removeInstantItem($chatId, $messageId, $parsed['category'], $parsed['product'], (int)$index);
+                 }
              }
         } elseif (strpos($data, CALLBACK_ADMIN_ADD_CATEGORY_PROMPT) === 0) {
              $this->startAddCategoryFlow($userId, $chatId, $messageId);
@@ -97,12 +114,16 @@ class AdminController
              $catKey = substr($data, strlen(CALLBACK_ADMIN_RP_SCAT_PREFIX));
              $this->showSelectProductForRemove($chatId, $messageId, $catKey);
         } elseif (strpos($data, CALLBACK_ADMIN_RP_SPRO_PREFIX) === 0) {
-             if (preg_match('/^' . preg_quote(CALLBACK_ADMIN_RP_SPRO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-                 $this->showConfirmRemoveProduct($chatId, $messageId, $matches[1], $matches[2]);
+             $composite = substr($data, strlen(CALLBACK_ADMIN_RP_SPRO_PREFIX));
+             $parsed = $this->productRepo->parseCompositeKey($composite);
+             if ($parsed) {
+                 $this->showConfirmRemoveProduct($chatId, $messageId, $parsed['category'], $parsed['product']);
              }
         } elseif (strpos($data, CALLBACK_ADMIN_RP_CONF_YES_PREFIX) === 0) {
-             if (preg_match('/^' . preg_quote(CALLBACK_ADMIN_RP_CONF_YES_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
-                 $this->removeProduct($chatId, $messageId, $matches[1], $matches[2]);
+             $composite = substr($data, strlen(CALLBACK_ADMIN_RP_CONF_YES_PREFIX));
+             $parsed = $this->productRepo->parseCompositeKey($composite);
+             if ($parsed) {
+                 $this->removeProduct($chatId, $messageId, $parsed['category'], $parsed['product']);
              }
         }
     }

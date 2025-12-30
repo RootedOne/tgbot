@@ -103,15 +103,18 @@ class Router
         }
 
         if (strpos($data, CALLBACK_CONFIRM_BUY_PREFIX) === 0) {
-            $parts = explode('_', substr($data, strlen(CALLBACK_CONFIRM_BUY_PREFIX)));
-            // Ensure parts exist
-            if (count($parts) >= 2) {
-                $this->orderController->confirmBuy($chatId, $messageId, $userId, $parts[0], $parts[1]);
+            $compositeKey = substr($data, strlen(CALLBACK_CONFIRM_BUY_PREFIX));
+            $parsed = $this->productRepo->parseCompositeKey($compositeKey);
+            if ($parsed) {
+                $this->orderController->confirmBuy($chatId, $messageId, $userId, $parsed['category'], $parsed['product']);
             }
             return;
         }
 
         if (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) === 0) {
+             // For purchased items, the ID is UserID_Index. UserID doesn't contain underscores usually, but let's be safe.
+             // Actually format is: PREFIX . USERID . '_' . INDEX
+             // UserID is strictly numeric, Index is strictly numeric. So explode works here.
              $parts = explode('_', substr($data, strlen(CALLBACK_VIEW_PURCHASED_ITEM_PREFIX)));
              if (count($parts) >= 2) {
                  $this->shopController->viewPurchasedItem($chatId, $messageId, $userId, (int)$parts[0], (int)$parts[1]);
@@ -119,9 +122,11 @@ class Router
              return;
         }
 
-        // --- Generic Product View Regex (Last Resort) ---
-        if (preg_match('/^(.+)_([^_]+)$/', $data, $matches)) {
-             $this->shopController->viewProduct($chatId, $messageId, $matches[1], $matches[2]);
+        // --- Generic Product View (Last Resort) ---
+        // Try parsing as composite key first (Category_ProductID)
+        $parsed = $this->productRepo->parseCompositeKey($data);
+        if ($parsed) {
+             $this->shopController->viewProduct($chatId, $messageId, $parsed['category'], $parsed['product']);
         }
     }
 
