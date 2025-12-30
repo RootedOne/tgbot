@@ -145,6 +145,19 @@ class Router
             return;
         }
 
+        // --- Admin Reply to Support Message ---
+        if ($isAdmin && isset($message->reply_to_message)) {
+            $replyText = $message->reply_to_message->text ?? '';
+            // Pattern matches the message sent in SupportController: "From: ... [USERID]"
+            // We look for [DIGITS]
+            if (preg_match('/\[(\d+)\]/', $replyText, $matches)) {
+                $targetUserId = (int)$matches[1];
+                $this->supportController->sendReplyToUser($targetUserId, $text);
+                $this->bot->sendMessage($chatId, "✅ Reply sent to user $targetUserId.");
+                return;
+            }
+        }
+
         // --- State Handling ---
         $state = $this->userRepo->getState($userId);
         if ($state) {

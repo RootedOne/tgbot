@@ -48,4 +48,10 @@ class SupportController
         $this->bot->sendMessage($adminId, "Chat started with $targetUserId.");
         $this->bot->sendMessage($targetUserId, "Admin connected.");
     }
+
+    public function sendReplyToUser(int $userId, string $text)
+    {
+        $replyMsg = "📩 پاسخ پشتیبانی:\n\n" . htmlspecialchars($text);
+        $this->bot->sendMessage($userId, $replyMsg);
+    }
 }
