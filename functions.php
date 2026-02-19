@@ -6,37 +6,69 @@ define('STATE_FILE', 'user_states.json');
 define('PRODUCTS_FILE', 'products.json');
 define('USER_PURCHASES_FILE', 'user_purchases.json');
 define('USER_DATA_FILE', 'user_data.json');
-// BOT_CONFIG_DATA_FILE is no longer used, config is in .env
 
 // Constants are now defined in config.php
+
+// ===================================================================
+//  DATABASE CONNECTION
+// ===================================================================
+function getPDO() {
+    static $pdo = null;
+    if ($pdo === null) {
+        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
+        $options = [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+            PDO::ATTR_PERSISTENT         => true,
+        ];
+        try {
+            $pdo = new PDO($dsn, DB_USER, DB_PASSWORD, $options);
+            $pdo->exec("SET time_zone = '+00:00'");
+        } catch (\PDOException $e) {
+            error_log("Database Connection Error: " . $e->getMessage());
+            return null;
+        }
+    }
+    return $pdo;
+}
+
 // ===================================================================
 //  STATE & DATA MANAGEMENT FUNCTIONS
 // ===================================================================
 function readJsonFile($filename) { if (!file_exists($filename)) return []; $json = file_get_contents($filename); return json_decode($json, true) ?: []; }
-
 function writeJsonFile($filename, $data) {
     $json_data = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-    if ($json_data === false) {
-        error_log("writeJsonFile: json_encode error for {$filename}: " . json_last_error_msg());
-        return false;
-    }
-
-    if (file_put_contents($filename, $json_data) === false) {
-        error_log("writeJsonFile: file_put_contents error for {$filename}. Check permissions, path, or disk space.");
-        return false;
-    }
-    return true;
+    return file_put_contents($filename, $json_data) !== false;
 }
 
-function setUserState($user_id, $state) { $states = readJsonFile(STATE_FILE); $states[$user_id] = $state; if(!writeJsonFile(STATE_FILE, $states)) {error_log("Failed to write user state for {$user_id}");} }
-function getUserState($user_id) { $states = readJsonFile(STATE_FILE); return $states[$user_id] ?? null; }
-function clearUserState($user_id) { $states = readJsonFile(STATE_FILE); if (isset($states[$user_id])) { unset($states[$user_id]); if(!writeJsonFile(STATE_FILE, $states)){error_log("Failed to write user states after clearing for {$user_id}");}} }
+function setUserState($user_id, $state) {
+    $pdo = getPDO();
+    if (!$pdo) return;
+    $stmt = $pdo->prepare("INSERT INTO user_states (user_id, state_data, updated_at) VALUES (:uid, :data, NOW()) ON DUPLICATE KEY UPDATE state_data = :data, updated_at = NOW()");
+    $stmt->execute([':uid' => $user_id, ':data' => json_encode($state, JSON_UNESCAPED_UNICODE)]);
+}
+
+function getUserState($user_id) {
+    $pdo = getPDO();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare("SELECT state_data FROM user_states WHERE user_id = :id");
+    $stmt->execute([':id' => $user_id]);
+    $result = $stmt->fetchColumn();
+    return $result ? json_decode($result, true) : null;
+}
+
+function clearUserState($user_id) {
+    $pdo = getPDO();
+    if (!$pdo) return;
+    $stmt = $pdo->prepare("DELETE FROM user_states WHERE user_id = :uid");
+    $stmt->execute([':uid' => $user_id]);
+}
 
 // --- Bot Config Data Functions ---
 function getBotConfig() {
     $admins_str = getenv('BOT_ADMINS');
     $admins = $admins_str ? explode(',', $admins_str) : [];
-    // Clean up admin IDs (trim and cast to int)
     $admins = array_map(function($id) { return (int)trim($id); }, $admins);
 
     $layout_mode = getenv('MAIN_MENU_LAYOUT_MODE') ?: 'auto';
@@ -57,26 +89,20 @@ function getBotConfig() {
 
 function saveBotConfig($config_data) {
     if (isset($config_data['admins']) && is_array($config_data['admins'])) {
-        $admins_str = implode(',', $config_data['admins']);
-        updateEnv('BOT_ADMINS', $admins_str);
+        updateEnv('BOT_ADMINS', implode(',', $config_data['admins']));
     }
-
     if (isset($config_data['payment_card_holder'])) {
         updateEnv('PAYMENT_CARD_HOLDER', $config_data['payment_card_holder']);
     }
-
     if (isset($config_data['payment_card_number'])) {
         updateEnv('PAYMENT_CARD_NUMBER', $config_data['payment_card_number']);
     }
-
     if (isset($config_data['main_menu_layout_mode'])) {
         updateEnv('MAIN_MENU_LAYOUT_MODE', $config_data['main_menu_layout_mode']);
     }
-
     if (isset($config_data['main_menu_columns'])) {
         updateEnv('MAIN_MENU_COLUMNS', $config_data['main_menu_columns']);
     }
-
     if (isset($config_data['main_menu_manual_layout'])) {
         updateEnv('MAIN_MENU_MANUAL_LAYOUT', json_encode($config_data['main_menu_manual_layout'], JSON_UNESCAPED_UNICODE));
     }
@@ -89,74 +115,189 @@ function addAdmin($user_id) { if (!is_numeric($user_id)) return false; $user_id 
 function removeAdmin($user_id) { if (!is_numeric($user_id)) return false; $user_id = (int) $user_id; $config = getBotConfig(); $admins = $config['admins'] ?? []; $initial_count = count($admins); $config['admins'] = array_values(array_filter($admins, function($admin) use ($user_id) { return $admin !== $user_id; })); if (count($config['admins']) < $initial_count) { saveBotConfig($config); return true; } return false; }
 
 // --- User Data Functions ---
-function getUserData($user_id) { $all_user_data = readJsonFile(USER_DATA_FILE); if (isset($all_user_data[$user_id])) { return $all_user_data[$user_id]; } return ['balance' => 0, 'is_banned' => false]; }
-function updateUserData($user_id, $data) { $all_user_data = readJsonFile(USER_DATA_FILE); $all_user_data[$user_id] = $data; if(!writeJsonFile(USER_DATA_FILE, $all_user_data)){error_log("Failed to update user data for {$user_id}");} }
-function banUser($user_id) { $user_data = getUserData($user_id); $user_data['is_banned'] = true; updateUserData($user_id, $user_data); }
-function unbanUser($user_id) { $user_data = getUserData($user_id); $user_data['is_banned'] = false; updateUserData($user_id, $user_data); }
-function addUserBalance($user_id, $amount) { if (!is_numeric($amount) || $amount < 0) return false; $user_data = getUserData($user_id); $user_data['balance'] = ($user_data['balance'] ?? 0) + (float)$amount; updateUserData($user_id, $user_data); return true; }
+function getUserData($user_id) {
+    $pdo = getPDO();
+    if (!$pdo) return ['balance' => 0, 'is_banned' => false];
+    $stmt = $pdo->prepare("SELECT balance, is_banned FROM users WHERE id = :id");
+    $stmt->execute([':id' => $user_id]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($user) {
+        $user['is_banned'] = (bool)$user['is_banned'];
+        return $user;
+    }
+    return ['balance' => 0, 'is_banned' => false];
+}
+
+function updateUserData($user_id, $data) {
+    $pdo = getPDO();
+    if (!$pdo) return;
+    $stmt = $pdo->prepare("INSERT INTO users (id, balance, is_banned) VALUES (:id, :balance, :banned) ON DUPLICATE KEY UPDATE balance = :balance, is_banned = :banned");
+    $stmt->execute([
+        ':id' => $user_id,
+        ':balance' => $data['balance'] ?? 0,
+        ':banned' => !empty($data['is_banned']) ? 1 : 0
+    ]);
+}
+
+function banUser($user_id) {
+    $pdo = getPDO();
+    if (!$pdo) return;
+    $stmt = $pdo->prepare("INSERT INTO users (id, is_banned) VALUES (:uid, 1) ON DUPLICATE KEY UPDATE is_banned = 1");
+    $stmt->execute([':uid' => $user_id]);
+}
+
+function unbanUser($user_id) {
+    $pdo = getPDO();
+    if (!$pdo) return;
+    $stmt = $pdo->prepare("INSERT INTO users (id, is_banned) VALUES (:uid, 0) ON DUPLICATE KEY UPDATE is_banned = 0");
+    $stmt->execute([':uid' => $user_id]);
+}
+
+function addUserBalance($user_id, $amount) {
+    if (!is_numeric($amount) || $amount < 0) return false;
+    $pdo = getPDO();
+    if (!$pdo) return false;
+    $stmt = $pdo->prepare("INSERT INTO users (id, balance) VALUES (:uid, :amount) ON DUPLICATE KEY UPDATE balance = balance + :amount");
+    return $stmt->execute([':uid' => $user_id, ':amount' => $amount]);
+}
 
 // --- User Purchase and Product Functions ---
 function recordPurchase($user_id, $product_name, $price, $delivered_item_content = null) {
-    $purchases = readJsonFile(USER_PURCHASES_FILE);
-    $new_purchase = [
-        'product_name' => $product_name,
-        'price' => $price,
-        'date' => date('Y-m-d H:i:s')
-    ];
-    if ($delivered_item_content !== null) {
-        $new_purchase['delivered_item_content'] = $delivered_item_content;
-    }
-    if (!isset($purchases[$user_id])) {
-        $purchases[$user_id] = [];
-    }
-    $purchases[$user_id][] = $new_purchase;
-    $new_purchase_index = count($purchases[$user_id]) - 1; // Index of the item just added
+    $pdo = getPDO();
+    if (!$pdo) return false;
 
-    if(writeJsonFile(USER_PURCHASES_FILE, $purchases)){
-        return $new_purchase_index;
-    } else {
-        error_log("Failed to record purchase for user {$user_id}");
-        return false;
-    }
-}
-function getProductDetails($category_key, $product_id) { global $products; if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); } return $products[$category_key][$product_id] ?? null; }
-function updateProductDetails($category_key, $product_id, $details) {
-    global $products;
-    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
-    if (isset($products[$category_key][$product_id])) {
-        $products[$category_key][$product_id] = $details;
-        return writeJsonFile(PRODUCTS_FILE, $products);
-    }
-    return false;
-}
-function addInstantProductItem($category_key, $product_id, $item_content) {
-    global $products;
-    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
-    if (isset($products[$category_key][$product_id]) && ($products[$category_key][$product_id]['type'] ?? 'manual') === 'instant') {
-        if (!isset($products[$category_key][$product_id]['items']) || !is_array($products[$category_key][$product_id]['items'])) {
-            $products[$category_key][$product_id]['items'] = [];
-        }
-        $products[$category_key][$product_id]['items'][] = $item_content;
-        return writeJsonFile(PRODUCTS_FILE, $products);
+    $product_id = null;
+    $stmtFind = $pdo->prepare("SELECT id FROM products WHERE name = :name LIMIT 1");
+    $stmtFind->execute([':name' => $product_name]);
+    $product_id = $stmtFind->fetchColumn() ?: null;
+
+    $stmt = $pdo->prepare("INSERT INTO purchases (user_id, product_id, product_name, price, delivered_item_content, date) VALUES (:uid, :pid, :name, :price, :content, NOW())");
+    $priceVal = is_numeric($price) ? $price : 0;
+
+    if ($stmt->execute([
+        ':uid' => $user_id,
+        ':pid' => $product_id,
+        ':name' => $product_name,
+        ':price' => $priceVal,
+        ':content' => $delivered_item_content
+    ])) {
+        return $pdo->lastInsertId();
     }
     return false;
 }
-function getAndRemoveInstantProductItem($category_key, $product_id) {
-    global $products;
-    if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
-    if (isset($products[$category_key][$product_id]) &&
-        ($products[$category_key][$product_id]['type'] ?? 'manual') === 'instant' &&
-        !empty($products[$category_key][$product_id]['items']) &&
-        is_array($products[$category_key][$product_id]['items'])) {
-        $item = array_shift($products[$category_key][$product_id]['items']);
-        if (writeJsonFile(PRODUCTS_FILE, $products)) {
-            return $item;
-        } else {
-            error_log("Failed to save products after removing an instant item for {$category_key}_{$product_id}. Item was removed from memory but not saved.");
-            return null;
+
+function getProductDetails($category_key, $product_id) {
+    $pdo = getPDO();
+    if (!$pdo) return null;
+
+    $stmt = $pdo->prepare("
+        SELECT p.*, c.slug as category_slug
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        WHERE c.slug = :cat_slug AND p.slug = :prod_slug
+    ");
+    $stmt->execute([':cat_slug' => $category_key, ':prod_slug' => $product_id]);
+    $product = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($product) {
+        $details = [
+            'name' => $product['name'],
+            'price' => $product['price'],
+            'type' => $product['type'],
+            'info' => $product['description']
+        ];
+
+        if ($product['type'] === 'instant') {
+            $stmtItems = $pdo->prepare("SELECT id, content FROM product_items WHERE product_id = :pid AND is_sold = 0");
+            $stmtItems->execute([':pid' => $product['id']]);
+            $details['items'] = $stmtItems->fetchAll(PDO::FETCH_ASSOC);
         }
+        return $details;
     }
     return null;
+}
+
+function updateProductDetails($category_key, $product_id, $details) {
+    $pdo = getPDO();
+    if (!$pdo) return false;
+
+    $stmt = $pdo->prepare("
+        UPDATE products p
+        JOIN categories c ON p.category_id = c.id
+        SET p.name = :name, p.price = :price, p.type = :type, p.description = :desc
+        WHERE c.slug = :cat AND p.slug = :prod
+    ");
+    return $stmt->execute([
+        ':name' => $details['name'],
+        ':price' => $details['price'],
+        ':type' => $details['type'],
+        ':desc' => $details['info'],
+        ':cat' => $category_key,
+        ':prod' => $product_id
+    ]);
+}
+
+function addInstantProductItem($category_key, $product_id, $item_content) {
+    $pdo = getPDO();
+    if (!$pdo) return false;
+
+    $stmtGetId = $pdo->prepare("
+        SELECT p.id FROM products p
+        JOIN categories c ON p.category_id = c.id
+        WHERE c.slug = :cat AND p.slug = :prod
+    ");
+    $stmtGetId->execute([':cat' => $category_key, ':prod' => $product_id]);
+    $pid = $stmtGetId->fetchColumn();
+
+    if ($pid) {
+        $stmtInsert = $pdo->prepare("INSERT INTO product_items (product_id, content, is_sold) VALUES (:pid, :content, 0)");
+        return $stmtInsert->execute([':pid' => $pid, ':content' => $item_content]);
+    }
+    return false;
+}
+
+function getAndRemoveInstantProductItem($category_key, $product_id) {
+    $pdo = getPDO();
+    if (!$pdo) return null;
+
+    try {
+        $pdo->beginTransaction();
+
+        $stmtPid = $pdo->prepare("
+            SELECT p.id FROM products p
+            JOIN categories c ON p.category_id = c.id
+            WHERE c.slug = :cat AND p.slug = :prod
+        ");
+        $stmtPid->execute([':cat' => $category_key, ':prod' => $product_id]);
+        $pid = $stmtPid->fetchColumn();
+
+        if (!$pid) {
+            $pdo->rollBack();
+            return null;
+        }
+
+        $stmtItem = $pdo->prepare("SELECT id, content FROM product_items WHERE product_id = :pid AND is_sold = 0 LIMIT 1 FOR UPDATE");
+        $stmtItem->execute([':pid' => $pid]);
+        $item = $stmtItem->fetch(PDO::FETCH_ASSOC);
+
+        if ($item) {
+            $stmtUpdate = $pdo->prepare("UPDATE product_items SET is_sold = 1, sold_at = UTC_TIMESTAMP() WHERE id = :id");
+            $stmtUpdate->execute([':id' => $item['id']]);
+
+            $pdo->commit();
+            return $item['content'];
+        } else {
+            $pdo->rollBack();
+            return null;
+        }
+
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
+        error_log("Transaction failed in getAndRemoveInstantProductItem: " . $e->getMessage());
+        return null;
+    }
 }
 
 function promptForProductType($chat_id, $admin_user_id, $category_key, $product_name_context) {
@@ -168,85 +309,68 @@ function promptForProductType($chat_id, $admin_user_id, $category_key, $product_
     sendMessage($chat_id, "Product: '{$product_name_context}'.\nSelect delivery type:", json_encode($type_keyboard));
 }
 
-$products = readJsonFile(PRODUCTS_FILE);
-
 // --- BOT STATS FUNCTION ---
 function generateBotStatsText() {
+    $pdo = getPDO();
+    if (!$pdo) return "Error connecting to database.";
+
     $stats_text = "📊 <b>Bot Statistics</b> 📊\n\n";
-    $products_data = readJsonFile(PRODUCTS_FILE);
-    $total_products = 0;
-    $products_per_category_lines = [];
-    if (!empty($products_data)) {
-        foreach ($products_data as $category_key => $category_products) {
-            if(is_array($category_products)){
-                $count = count($category_products);
-                $total_products += $count;
-                $category_display_name = ucfirst(str_replace('_', ' ', $category_key));
-                $products_per_category_lines[] = "  - " . htmlspecialchars($category_display_name) . ": " . $count . " products";
-            }
-        }
-    }
+
+    // Products
+    $total_products = $pdo->query("SELECT COUNT(*) FROM products")->fetchColumn();
     $stats_text .= "📦 <b>Products:</b>\n";
     $stats_text .= "▪️ Total Products: " . $total_products . "\n";
-    if (!empty($products_per_category_lines)) {
-        $stats_text .= "▪️ Products per Category:\n" . implode("\n", $products_per_category_lines) . "\n";
-    } else { $stats_text .= "▪️ No products found in any category.\n"; }
-    $stats_text .= "\n";
 
-    $user_data_all = readJsonFile(USER_DATA_FILE);
-    $total_users = 0; $banned_users_count = 0;
-    if (!empty($user_data_all) && is_array($user_data_all)) {
-        $total_users = count($user_data_all);
-        foreach ($user_data_all as $data) {
-            if (isset($data['is_banned']) && $data['is_banned'] === true) { $banned_users_count++; }
-        }
-    }
-    $stats_text .= "👤 <b>Users:</b>\n";
-    $stats_text .= "▪️ Total Users (with data entries): " . $total_users . "\n";
-    $stats_text .= "▪️ Banned Users: " . $banned_users_count . "\n";
-    $stats_text .= "\n";
+    $cats = $pdo->query("
+        SELECT c.name, COUNT(p.id) as count
+        FROM categories c
+        LEFT JOIN products p ON c.id = p.category_id
+        GROUP BY c.id
+    ")->fetchAll(PDO::FETCH_ASSOC);
 
-    $user_purchases_all = readJsonFile(USER_PURCHASES_FILE);
-    $total_purchases_count = 0; $total_sales_volume = 0.0; $manual_additions_count = 0;
-    if (!empty($user_purchases_all) && is_array($user_purchases_all)) {
-        foreach ($user_purchases_all as $purchases) {
-            if (is_array($purchases)) {
-                $total_purchases_count += count($purchases);
-                foreach ($purchases as $purchase) {
-                    if (isset($purchase['price'])) {
-                        if (is_numeric($purchase['price'])) { $total_sales_volume += (float)$purchase['price']; }
-                        elseif (strtolower(trim($purchase['price'])) === 'manually added') { $manual_additions_count++; }
-                    }
-                }
+    if ($cats) {
+        $stats_text .= "▪️ Products per Category:\n";
+        foreach ($cats as $cat) {
+            if ($cat['count'] > 0) {
+                 $stats_text .= "  - " . htmlspecialchars($cat['name']) . ": " . $cat['count'] . " products\n";
             }
         }
-    }
+    } else { $stats_text .= "▪️ No categories found.\n"; }
+    $stats_text .= "\n";
+
+    // Users
+    $total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+    $banned_users = $pdo->query("SELECT COUNT(*) FROM users WHERE is_banned = 1")->fetchColumn();
+
+    $stats_text .= "👤 <b>Users:</b>\n";
+    $stats_text .= "▪️ Total Users: " . $total_users . "\n";
+    $stats_text .= "▪️ Banned Users: " . $banned_users . "\n";
+    $stats_text .= "\n";
+
+    // Purchases
+    $total_purchases = $pdo->query("SELECT COUNT(*) FROM purchases")->fetchColumn();
+    $total_volume = $pdo->query("SELECT SUM(price) FROM purchases WHERE price > 0")->fetchColumn();
+
     $stats_text .= "💳 <b>Purchases & Sales:</b>\n";
-    $stats_text .= "▪️ Total Purchase Records: " . $total_purchases_count . "\n";
-    $stats_text .= "▪️ Total Sales Volume (from numeric prices): $" . number_format($total_sales_volume, 2) . "\n";
-    if ($manual_additions_count > 0) { $stats_text .= "▪️ Manually Added Items (via /addprod): " . $manual_additions_count . "\n"; }
+    $stats_text .= "▪️ Total Purchase Records: " . $total_purchases . "\n";
+    $stats_text .= "▪️ Total Sales Volume: $" . number_format($total_volume ?: 0, 2) . "\n";
+
     return $stats_text;
 }
-// --- END BOT STATS FUNCTION ---
 
 // ===================================================================
 //  TELEGRAM API FUNCTIONS
 // ===================================================================
 function generateDynamicMainMenuKeyboard($is_admin_menu = false) {
-    global $products;
-    $products = readJsonFile(PRODUCTS_FILE);
     $config = getBotConfig();
     $layout_mode = $config['main_menu_layout_mode'] ?? 'auto';
 
     $all_buttons = [];
-    if (!empty($products)) {
-        foreach ($products as $category_key => $category_items) {
-            if (is_string($category_key) && !empty($category_key) && is_array($category_items)) {
-                $displayName = ucfirst(str_replace('_', ' ', $category_key));
-                $all_buttons['view_category_' . $category_key] = ['text' => "🛍️ " . htmlspecialchars($displayName), 'callback_data' => 'view_category_' . $category_key];
-            } else {
-                error_log("START_MENU: Skipped invalid top-level item in products.json. Key: " . print_r($category_key, true) . " Items: " . print_r($category_items, true));
-            }
+    $pdo = getPDO();
+    if ($pdo) {
+        $cats = $pdo->query("SELECT slug, name FROM categories ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($cats as $cat) {
+            $all_buttons['view_category_' . $cat['slug']] = ['text' => "🛍️ " . htmlspecialchars($cat['name']), 'callback_data' => 'view_category_' . $cat['slug']];
         }
     }
 
@@ -285,14 +409,14 @@ function editMessageText($chat_id, $message_id, $text, $reply_markup = null, $pa
 function editMessageCaption($chat_id, $message_id, $caption, $reply_markup = null, $parse_mode = 'HTML') { bot('editMessageCaption', ['chat_id' => $chat_id, 'message_id' => $message_id, 'caption' => $caption, 'reply_markup' => $reply_markup, 'parse_mode' => $parse_mode]); }
 function editMessageReplyMarkup($chat_id, $message_id, $reply_markup = null) { bot('editMessageReplyMarkup', ['chat_id' => $chat_id, 'message_id' => $message_id, 'reply_markup' => $reply_markup]); }
 function answerCallbackQuery($callback_query_id) { bot('answerCallbackQuery', ['callback_query_id' => $callback_query_id]); }
-// Modify function signature to accept category_key and product_id
+
 function forwardPhotoToAdmin($file_id, $caption, $original_user_id, $category_key, $product_id) {
     $admin_ids = getAdminIds();
     if(empty($admin_ids)) return;
     $admin_id = $admin_ids[0];
 
     $product_details = getProductDetails($category_key, $product_id);
-    $product_type = $product_details['type'] ?? 'manual'; // Default to manual if type not set
+    $product_type = $product_details['type'] ?? 'manual';
 
     $accept_button_text = "✅ Accept";
     $accept_button_callback_data = CALLBACK_ACCEPT_PAYMENT_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
@@ -302,8 +426,6 @@ function forwardPhotoToAdmin($file_id, $caption, $original_user_id, $category_ke
         $accept_button_callback_data = CALLBACK_ACCEPT_AND_SEND_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
     }
 
-    // Reject button callback data remains the same, but needs all identifiers for consistency if rejection logic ever needs them.
-    // The previous implementation already included category_key and product_id in reject_callback_data.
     $reject_callback_data = CALLBACK_REJECT_PAYMENT_PREFIX . $original_user_id . "_" . $category_key . "_" . $product_id;
 
     $approval_keyboard = json_encode(['inline_keyboard' => [
@@ -314,33 +436,30 @@ function forwardPhotoToAdmin($file_id, $caption, $original_user_id, $category_ke
 }
 
 function generateCategoryKeyboard($category_key) {
-    // error_log("GEN_CAT_KB: Called for category: " . $category_key);
-    global $products;
-
+    $pdo = getPDO();
     $keyboard = ['inline_keyboard' => []];
-    $category_products = $products[$category_key] ?? [];
-    // error_log("GEN_CAT_KB: Products in this category ('" . $category_key . "'): " . print_r($category_products, true));
 
-    // if (empty($category_products)) {
-    //     error_log("GEN_CAT_KB: No products found in loop for category: " . $category_key);
-    // }
+    if ($pdo) {
+        $stmt = $pdo->prepare("
+            SELECT p.slug, p.name, p.price
+            FROM products p
+            JOIN categories c ON p.category_id = c.id
+            WHERE c.slug = :cat_slug
+            ORDER BY p.id ASC
+        ");
+        $stmt->execute([':cat_slug' => $category_key]);
+        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    foreach ($category_products as $id => $details) {
-        if (is_array($details) && isset($details['name']) && isset($details['price'])) {
-            $product_display_name = $details['name'];
-            $product_price = $details['price'];
-            $callback_value = "{$category_key}_{$id}";
-            // error_log("GEN_CAT_KB_PROD_CB: For category '{$category_key}', generated product callback: '" . $callback_value . "'");
+        foreach ($products as $prod) {
+            $product_display_name = $prod['name'];
+            $product_price = $prod['price'];
+            $callback_value = "{$category_key}_{$prod['slug']}";
             $keyboard['inline_keyboard'][] = [['text' => "{$product_display_name} - \${$product_price}", 'callback_data' => $callback_value]];
-        } else {
-            error_log("GEN_CAT_KB: Product ID '{$id}' in category '{$category_key}' has malformed details: " . print_r($details, true));
         }
     }
     $keyboard['inline_keyboard'][] = [['text' => '🏠 برگشت به منوی اصلی', 'callback_data' => CALLBACK_BACK_TO_MAIN]];
     return json_encode($keyboard);
 }
-
-// --- Helper Functions for Navigation & State Reset ---
 
 function getAdminPanelKeyboard() {
     return [
@@ -357,26 +476,16 @@ function getAdminPanelKeyboard() {
 function sendUserConfirmationAndMenu($chat_id, $confirmation_text, $user_id, $is_admin = null) {
     clearUserState($user_id);
     sendMessage($chat_id, $confirmation_text);
-
-    // Check if user is admin to generate correct menu (though usually main menu is same, but is_admin flag adds Admin Panel button)
     if ($is_admin === null) {
         $is_admin = in_array($user_id, getAdminIds());
     }
     $menu_keyboard = generateDynamicMainMenuKeyboard($is_admin);
-
-    // User Post-Task Rule: User Main Menu and its full keyboard.
-    $first_name = "User"; // We don't have name easily here without fetching, but the menu is the important part.
-    // If we want a welcome message with name, we'd need to fetch user info or just send the menu with a generic header.
-    // The requirement says "new message containing the User Main Menu".
-    // Let's use a standard header for the menu.
     sendMessage($chat_id, "🏠 <b>منوی اصلی</b> 👇", json_encode($menu_keyboard), 'HTML');
 }
 
 function sendAdminConfirmationAndMenu($chat_id, $confirmation_text, $user_id) {
     clearUserState($user_id);
     sendMessage($chat_id, $confirmation_text);
-
-    // Admin Post-Task Rule: Admin Panel main view.
     $admin_keyboard = getAdminPanelKeyboard();
     sendMessage($chat_id, "⚙️ <b>Admin Panel</b> ⚙️", json_encode($admin_keyboard), 'HTML');
 }
@@ -385,7 +494,7 @@ function sendAdminConfirmationAndMenu($chat_id, $confirmation_text, $user_id) {
 //  CALLBACK QUERY PROCESSOR
 // ===================================================================
 function processCallbackQuery($callback_query) {
-    global $mainMenuKeyboard, $adminMenuKeyboard, $products;
+    global $mainMenuKeyboard, $adminMenuKeyboard;
     $chat_id = $callback_query->message->chat->id;
     $user_id = $callback_query->from->id;
     $data = $callback_query->data;
@@ -393,10 +502,6 @@ function processCallbackQuery($callback_query) {
     $is_admin = in_array($user_id, getAdminIds());
 
     error_log("PROCESS_CALLBACK_QUERY: Received data: '" . $data . "' | UserID: " . $user_id);
-
-    if (strpos($data, CALLBACK_ADMIN_RP_CONF_YES_PREFIX) === 0) {
-        // error_log("DEBUG PRE-ACK: RP_CONF_YES_PREFIX data received by processCallbackQuery. Data: " . $data);
-    }
 
     answerCallbackQuery($callback_query->id);
 
@@ -407,19 +512,22 @@ function processCallbackQuery($callback_query) {
     }
 
     if (strpos($data, 'view_category_') === 0) {
-        // error_log("VIEW_CAT: Entered handler. Data: " . $data);
-        global $products; $products = readJsonFile(PRODUCTS_FILE);
-
         $category_key_view = substr($data, strlen('view_category_'));
-        // error_log("VIEW_CAT: Category key extracted: " . $category_key_view);
-
         $category_display_name_view = ucfirst(str_replace('_', ' ', $category_key_view));
 
-        if (isset($products[$category_key_view]) && !empty($products[$category_key_view])) {
+        $pdo = getPDO();
+        $has_products = false;
+        if ($pdo) {
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM products p JOIN categories c ON p.category_id = c.id WHERE c.slug = :slug");
+            $stmt->execute([':slug' => $category_key_view]);
+            if ($stmt->fetchColumn() > 0) $has_products = true;
+        }
+
+        if ($has_products) {
             $kb_category_products = generateCategoryKeyboard($category_key_view);
             editMessageText($chat_id, $message_id, "🛍️ لطفاً یه محصول از دسته‌ی <b>" . htmlspecialchars($category_display_name_view) . "</b> انتخاب کن:", $kb_category_products, 'HTML');
         } else {
-            error_log("VIEW_CAT: Category '{$category_key_view}' is empty or not found in loaded products for display. Data: ".$data);
+            error_log("VIEW_CAT: Category '{$category_key_view}' is empty or not found. Data: ".$data);
             $kb_empty_cat = json_encode(['inline_keyboard' => [[['text' => '🏠 برگشت به منوی اصلی', 'callback_data' => CALLBACK_BACK_TO_MAIN]]]]);
             editMessageText($chat_id, $message_id, "😕 متأسفیم! الان توی دسته‌ی <b>" . htmlspecialchars($category_display_name_view) . "</b> محصولی موجود نیست، یا شاید همین تازگی‌ها آپدیت شده باشه.", $kb_empty_cat, 'HTML');
         }
@@ -427,8 +535,13 @@ function processCallbackQuery($callback_query) {
     }
 
     elseif ($data === CALLBACK_MY_PRODUCTS) {
-        $purchases_all_data = readJsonFile(USER_PURCHASES_FILE);
-        $user_purchases_array = $purchases_all_data[$user_id] ?? [];
+        $pdo = getPDO();
+        $user_purchases_array = [];
+        if ($pdo) {
+            $stmt = $pdo->prepare("SELECT id, product_name, date, delivered_item_content FROM purchases WHERE user_id = :uid ORDER BY date DESC");
+            $stmt->execute([':uid' => $user_id]);
+            $user_purchases_array = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
 
         $message_to_send = "<b>📋 محصولاتت:</b>\nبرای دیدن جزئیات، روی هر مورد بزن 👇";
         $keyboard_button_rows = [];
@@ -436,9 +549,8 @@ function processCallbackQuery($callback_query) {
         if (empty($user_purchases_array)) {
             $message_to_send = "🙁 هنوز هیچ محصولی نداری!";
         } else {
-            foreach ($user_purchases_array as $index => $purchase_item) {
+            foreach ($user_purchases_array as $purchase_item) {
                 $product_name_btn = htmlspecialchars($purchase_item['product_name']);
-                // Ensure date is valid before formatting, fallback if not
                 $purchase_date_str = $purchase_item['date'] ?? null;
                 $purchase_date_btn = '📅 تاریخ نامشخص';
                 if ($purchase_date_str && strtotime($purchase_date_str) !== false) {
@@ -448,7 +560,7 @@ function processCallbackQuery($callback_query) {
                 $emoji_btn = (isset($purchase_item['delivered_item_content']) && trim($purchase_item['delivered_item_content']) !== '') ? "📦" : "📄";
 
                 $button_text_val = $emoji_btn . " " . $product_name_btn . " (" . $purchase_date_btn . ")";
-                $keyboard_button_rows[] = [['text' => $button_text_val, 'callback_data' => CALLBACK_VIEW_PURCHASED_ITEM_PREFIX . $user_id . "_" . $index]];
+                $keyboard_button_rows[] = [['text' => $button_text_val, 'callback_data' => CALLBACK_VIEW_PURCHASED_ITEM_PREFIX . $user_id . "_" . $purchase_item['id']]];
             }
         }
 
@@ -458,9 +570,9 @@ function processCallbackQuery($callback_query) {
         editMessageText($chat_id, $message_id, $message_to_send, $final_reply_markup, 'HTML');
     }
     elseif (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) === 0) {
-        answerCallbackQuery($callback_query->id); // Answer immediately to acknowledge button press
+        answerCallbackQuery($callback_query->id);
 
-        $payload = substr($data, strlen(CALLBACK_VIEW_PURCHASED_ITEM_PREFIX)); // Expected: USERID_PURCHASEINDEX
+        $payload = substr($data, strlen(CALLBACK_VIEW_PURCHASED_ITEM_PREFIX));
         $parts = explode('_', $payload);
 
         $text_to_display = "";
@@ -468,32 +580,30 @@ function processCallbackQuery($callback_query) {
 
         if (count($parts) === 2) {
             $item_owner_id_from_cb = $parts[0];
-            $purchase_index_from_cb = (int)$parts[1];
+            $purchase_id_from_cb = (int)$parts[1];
 
             if ((string)$user_id !== (string)$item_owner_id_from_cb) {
                 error_log("VIEW_ITEM_DENIED: User {$user_id} attempted to view item for user {$item_owner_id_from_cb}. Denied. Callback: {$data}");
-                // To prevent information leakage or confusion, edit the message to a generic error or back to My Products.
-                // For simplicity, just showing an error text.
                 $text_to_display = "🚫 این کار مجاز نیست.";
-                // No 'Back' button here as this is an unauthorized access attempt.
-                // Or, could edit to "My Products" view again.
-                // Let's keep it simple:
-                editMessageText($chat_id, $message_id, $text_to_display, null, 'HTML'); // No keyboard for error
+                editMessageText($chat_id, $message_id, $text_to_display, null, 'HTML');
                 return;
             }
 
-            $all_purchases_data = readJsonFile(USER_PURCHASES_FILE);
-            $user_specific_purchases_list = $all_purchases_data[$item_owner_id_from_cb] ?? [];
+            $pdo = getPDO();
+            $purchase_to_display = null;
+            if ($pdo) {
+                $stmt = $pdo->prepare("SELECT product_name, price, date, delivered_item_content FROM purchases WHERE id = :id AND user_id = :uid");
+                $stmt->execute([':id' => $purchase_id_from_cb, ':uid' => $item_owner_id_from_cb]);
+                $purchase_to_display = $stmt->fetch(PDO::FETCH_ASSOC);
+            }
 
-            if (isset($user_specific_purchases_list[$purchase_index_from_cb])) {
-                $purchase_to_display = $user_specific_purchases_list[$purchase_index_from_cb];
-
+            if ($purchase_to_display) {
                 $text_to_display = "📦 محصول: " . htmlspecialchars($purchase_to_display['product_name']) . "\n";
                 $text_to_display .= "🗓 تاریخ خرید: " . htmlspecialchars($purchase_to_display['date']) . "\n";
                 if (isset($purchase_to_display['price'])) {
                      $text_to_display .= "💵 قیمت: $" . htmlspecialchars($purchase_to_display['price']) . "\n";
                 }
-                $text_to_display .= "\n"; // Extra newline before details or note
+                $text_to_display .= "\n";
 
                 if (isset($purchase_to_display['delivered_item_content']) && trim($purchase_to_display['delivered_item_content']) !== '') {
                     $text_to_display .= "📄 جزئیات محصول:\n<code>" . htmlspecialchars($purchase_to_display['delivered_item_content']) . "</code>";
@@ -502,7 +612,7 @@ function processCallbackQuery($callback_query) {
                 }
             } else {
                 $text_to_display = "❌ نتونستم این محصول خریداری‌شده رو پیدا کنم.\nممکنه حذف شده باشه یا خطایی پیش اومده باشه.";
-                error_log("VIEW_ITEM_NOT_FOUND: Purchase item not found for user {$item_owner_id_from_cb} at index {$purchase_index_from_cb}. Callback: {$data}");
+                error_log("VIEW_ITEM_NOT_FOUND: Purchase item not found for user {$item_owner_id_from_cb} at ID {$purchase_id_from_cb}. Callback: {$data}");
             }
         } else {
             $text_to_display = "⚠️ خطا در دریافت جزئیات محصول به‌خاطر فرمت نامعتبر داده‌ها.";
@@ -528,7 +638,7 @@ function processCallbackQuery($callback_query) {
         }
         elseif ($data === CALLBACK_ADMIN_MAIN_MENU_UI) {
             $config = getBotConfig();
-            $layout_mode = $config['main_menu_layout_mode'] ?? 'auto'; // default to auto
+            $layout_mode = $config['main_menu_layout_mode'] ?? 'auto';
 
             $menu_ui_keyboard = [
                 'inline_keyboard' => [
@@ -545,13 +655,12 @@ function processCallbackQuery($callback_query) {
         elseif ($data === CALLBACK_ADMIN_MANUAL_LAYOUT_MENU) {
             setUserState($user_id, ['status' => STATE_ADMIN_SETTING_MANUAL_LAYOUT, 'message_id' => $message_id]);
 
-            $products = readJsonFile(PRODUCTS_FILE);
             $available_buttons = [];
-            if (!empty($products)) {
-                foreach ($products as $category_key => $category_items) {
-                    if (is_string($category_key) && !empty($category_key) && is_array($category_items)) {
-                        $available_buttons[] = 'view_category_' . $category_key;
-                    }
+            $pdo = getPDO();
+            if ($pdo) {
+                $cats = $pdo->query("SELECT slug FROM categories")->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($cats as $slug) {
+                    $available_buttons[] = 'view_category_' . $slug;
                 }
             }
             $available_buttons[] = CALLBACK_MY_PRODUCTS;
@@ -597,10 +706,9 @@ function processCallbackQuery($callback_query) {
 
             $config = getBotConfig();
             $config['main_menu_columns'] = $new_cols;
-            $config['main_menu_layout_mode'] = 'auto'; // Set mode to auto
+            $config['main_menu_layout_mode'] = 'auto';
             saveBotConfig($config);
 
-            // Re-display the menu with the updated selection
             $current_cols = $new_cols;
             $menu_ui_keyboard = [
                 'inline_keyboard' => [
@@ -633,8 +741,10 @@ function processCallbackQuery($callback_query) {
             return;
         }
         elseif ($data === CALLBACK_ADMIN_EDIT_CATEGORY_SELECT) {
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
-            $category_keys = array_keys($products);
+            $pdo = getPDO();
+            $category_keys = [];
+            if ($pdo) $category_keys = $pdo->query("SELECT slug FROM categories")->fetchAll(PDO::FETCH_COLUMN);
+
             $keyboard_rows = [];
 
             if (empty($category_keys)) {
@@ -658,18 +768,24 @@ function processCallbackQuery($callback_query) {
             return;
         }
         elseif ($data === CALLBACK_ADMIN_REMOVE_CATEGORY_SELECT) {
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
-            $category_keys = array_keys($products);
+            $pdo = getPDO();
+            $category_stats = [];
+            if ($pdo) {
+                $stmt = $pdo->query("SELECT c.slug, COUNT(p.id) as count FROM categories c LEFT JOIN products p ON c.id = p.category_id GROUP BY c.id");
+                $category_stats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
             $keyboard_rows = [];
 
-            if (empty($category_keys)) {
+            if (empty($category_stats)) {
                 editMessageText($chat_id, $message_id, "No categories exist to remove.", json_encode(['inline_keyboard' => [[['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]]]));
                 return;
             }
 
-            foreach ($category_keys as $cat_key) {
+            foreach ($category_stats as $stat) {
+                $cat_key = $stat['slug'];
                 $display_name = ucfirst(str_replace('_', ' ', $cat_key));
-                $is_empty = empty($products[$cat_key]);
+                $is_empty = ($stat['count'] == 0);
                 $emoji = $is_empty ? "🗑️" : "⚠️";
                 $keyboard_rows[] = [['text' => "{$emoji} " . htmlspecialchars($display_name), 'callback_data' => CALLBACK_ADMIN_REMOVE_CATEGORY_CONFIRM_PREFIX . $cat_key]];
             }
@@ -678,15 +794,29 @@ function processCallbackQuery($callback_query) {
             return;
         }
         elseif (strpos($data, CALLBACK_ADMIN_REMOVE_CATEGORY_CONFIRM_PREFIX) === 0) {
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
             $category_to_remove = substr($data, strlen(CALLBACK_ADMIN_REMOVE_CATEGORY_CONFIRM_PREFIX));
+            $pdo = getPDO();
+            $cat_data = null;
+            $product_count = 0;
 
-            if (!isset($products[$category_to_remove])) {
+            if ($pdo) {
+                $stmt = $pdo->prepare("SELECT id, slug FROM categories WHERE slug = :slug");
+                $stmt->execute([':slug' => $category_to_remove]);
+                $cat_data = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($cat_data) {
+                    $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM products WHERE category_id = :cid");
+                    $stmtCount->execute([':cid' => $cat_data['id']]);
+                    $product_count = $stmtCount->fetchColumn();
+                }
+            }
+
+            if (!$cat_data) {
                 editMessageText($chat_id, $message_id, "Error: Category '".htmlspecialchars($category_to_remove)."' not found. It might have already been removed.", json_encode(['inline_keyboard' => [[['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]]]));
                 return;
             }
 
-            $is_empty = empty($products[$category_to_remove]);
+            $is_empty = ($product_count == 0);
             $display_cat_name = htmlspecialchars(ucfirst(str_replace('_', ' ', $category_to_remove)));
             $kb_confirm_remove = [];
 
@@ -694,7 +824,6 @@ function processCallbackQuery($callback_query) {
                 $confirm_text = "Category '<b>{$display_cat_name}</b>' (key: `{$category_to_remove}`) is empty.\nAre you sure you want to remove it?";
                 $kb_confirm_remove[] = [['text' => "✅ Yes, Remove Empty Category", 'callback_data' => CALLBACK_ADMIN_REMOVE_CATEGORY_DO_PREFIX . $category_to_remove . "_empty"]];
             } else {
-                $product_count = count($products[$category_to_remove]);
                 $confirm_text = "⚠️ <b>DANGER ZONE</b> ⚠️\nCategory '<b>{$display_cat_name}</b>' (key: `{$category_to_remove}`) contains <b>{$product_count} product(s)</b>.\n\nRemoving this category will also <b>PERMANENTLY DELETE ALL PRODUCTS</b> under it. This action is irreversible.\n\nAre you absolutely sure you want to proceed?";
                 $kb_confirm_remove[] = [['text' => "☠️ YES, DELETE Category & {$product_count} Product(s)", 'callback_data' => CALLBACK_ADMIN_REMOVE_CATEGORY_DO_PREFIX . $category_to_remove . "_withproducts"]];
             }
@@ -715,30 +844,25 @@ function processCallbackQuery($callback_query) {
             $category_to_delete = substr($parts_str, 0, $last_underscore_pos);
             $action_type = substr($parts_str, $last_underscore_pos + 1);
 
-            global $products;
-            if (empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
-
+            $pdo = getPDO();
+            $success = false;
             $display_cat_name_deleted = htmlspecialchars(ucfirst(str_replace('_', ' ', $category_to_delete)));
 
-            if (!isset($products[$category_to_delete])) {
-                 editMessageText($chat_id, $message_id, "Error: Category '{$display_cat_name_deleted}' (key: `{$category_to_delete}`) was not found for deletion. It might have already been removed.", json_encode(['inline_keyboard' => [[['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]]]), 'HTML');
-                 return;
+            if ($pdo) {
+                $stmt = $pdo->prepare("DELETE FROM categories WHERE slug = :slug");
+                $success = $stmt->execute([':slug' => $category_to_delete]);
             }
 
-            unset($products[$category_to_delete]);
-
-            if (writeJsonFile(PRODUCTS_FILE, $products)) {
+            if ($success) {
                 $success_message = "✅ Category '<b>{$display_cat_name_deleted}</b>' (key: `{$category_to_delete}`)";
                 if ($action_type === "withproducts") {
                     $success_message .= " and all its associated products have been deleted.";
                 } else {
                     $success_message .= " has been removed successfully.";
                 }
-                // Post-Task Rule: Send confirmation then Admin Panel
                 sendAdminConfirmationAndMenu($chat_id, $success_message, $user_id);
             } else {
-                error_log("Failed to write products file after removing category {$category_to_delete}. The category might still appear until bot restart if memory wasn't updated from disk properly.");
-                editMessageText($chat_id, $message_id, "⚠️ Failed to save changes after attempting to remove category '<b>{$display_cat_name_deleted}</b>'. Please check server logs or file permissions. The category might not be fully removed from the data file.", json_encode(['inline_keyboard' => [[['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]]]), 'HTML');
+                editMessageText($chat_id, $message_id, "⚠️ Failed to remove category '<b>{$display_cat_name_deleted}</b>' (or it didn't exist). Please check logs.", json_encode(['inline_keyboard' => [[['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]]]), 'HTML');
             }
             return;
         }
@@ -761,8 +885,10 @@ function processCallbackQuery($callback_query) {
         }
 
         elseif ($data === CALLBACK_ADMIN_ADD_PROD_SELECT_CATEGORY) {
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
-            $category_keys = array_keys($products);
+            $pdo = getPDO();
+            $category_keys = [];
+            if ($pdo) $category_keys = $pdo->query("SELECT slug FROM categories")->fetchAll(PDO::FETCH_COLUMN);
+
             $keyboard_rows = [];
             if(empty($category_keys)) {
                  setUserState($user_id, ['status' => STATE_ADMIN_ADDING_PROD_NAME, 'category_key' => 'default']);
@@ -791,19 +917,29 @@ function processCallbackQuery($callback_query) {
         }
 
         elseif ($data === CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY) {
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
-            if (empty($products)) { editMessageText($chat_id, $message_id, "No categories found to edit products from.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]])); return; }
+            $pdo = getPDO();
+            $category_keys = [];
+            if ($pdo) $category_keys = $pdo->query("SELECT slug FROM categories")->fetchAll(PDO::FETCH_COLUMN);
+
+            if (empty($category_keys)) { editMessageText($chat_id, $message_id, "No categories found to edit products from.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]])); return; }
             $keyboard_rows = [];
-            foreach (array_keys($products) as $ck) { $keyboard_rows[] = [['text' => ucfirst(str_replace('_', ' ', $ck)), 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $ck]]; }
+            foreach ($category_keys as $ck) { $keyboard_rows[] = [['text' => ucfirst(str_replace('_', ' ', $ck)), 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $ck]]; }
             $keyboard_rows[] = [['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]];
             editMessageText($chat_id, $message_id, "Select category to edit products from:", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
         elseif (strpos($data, CALLBACK_ADMIN_EP_SCAT_PREFIX) === 0) {
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
             $category_key = substr($data, strlen(CALLBACK_ADMIN_EP_SCAT_PREFIX));
-            if (!isset($products[$category_key]) || empty($products[$category_key])) { editMessageText($chat_id, $message_id, "No products in '" . htmlspecialchars($category_key)."'.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY]]]])); return; }
+            $pdo = getPDO();
+            $products_in_cat = [];
+            if ($pdo) {
+                $stmt = $pdo->prepare("SELECT p.slug, p.name, p.price FROM products p JOIN categories c ON p.category_id = c.id WHERE c.slug = :cat");
+                $stmt->execute([':cat' => $category_key]);
+                $products_in_cat = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            if (empty($products_in_cat)) { editMessageText($chat_id, $message_id, "No products in '" . htmlspecialchars($category_key)."'.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY]]]])); return; }
             $keyboard_rows = [];
-            foreach ($products[$category_key] as $pid => $pdetails) { $keyboard_rows[] = [['text' => htmlspecialchars($pdetails['name']) . " (\${$pdetails['price']})", 'callback_data' => CALLBACK_ADMIN_EP_SPRO_PREFIX . "{$category_key}_{$pid}"]]; }
+            foreach ($products_in_cat as $prod) { $keyboard_rows[] = [['text' => htmlspecialchars($prod['name']) . " (\${$prod['price']})", 'callback_data' => CALLBACK_ADMIN_EP_SPRO_PREFIX . "{$category_key}_{$prod['slug']}"]]; }
             $keyboard_rows[] = [['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Select product to edit in '" . htmlspecialchars($category_key) . "':", json_encode(['inline_keyboard' => $keyboard_rows]));
         }
@@ -812,16 +948,15 @@ function processCallbackQuery($callback_query) {
             $category_key = null;
             $product_id = null;
 
-            global $products;
-            if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
+            $pdo = getPDO();
+            $category_keys = [];
+            if ($pdo) $category_keys = $pdo->query("SELECT slug FROM categories")->fetchAll(PDO::FETCH_COLUMN);
 
-            // Get category keys and sort them by length, descending to match longest possible key first
-            $category_keys_from_file = array_keys($products);
-            usort($category_keys_from_file, function($a, $b) {
-                return strlen($b) - strlen($a); // Sort by length descending
+            usort($category_keys, function($a, $b) {
+                return strlen($b) - strlen($a);
             });
 
-            foreach ($category_keys_from_file as $known_cat_key) { // Iterate through sorted keys
+            foreach ($category_keys as $known_cat_key) {
                 if (strpos($ids_str, $known_cat_key . '_') === 0) {
                     $category_key = $known_cat_key;
                     $product_id = substr($ids_str, strlen($known_cat_key) + 1);
@@ -840,12 +975,9 @@ function processCallbackQuery($callback_query) {
             $p = getProductDetails($category_key, $product_id);
             if (!$p) {
                 error_log("EP_SPRO_NOT_FOUND: Product not found. Data: {$data}, Parsed Category: {$category_key}, Parsed ProductID: {$product_id}");
-                // Construct a safe fallback category key for the error keyboard, in case $category_key itself is problematic.
-                // However, if parsing failed, we'd return above. If it succeeded, $category_key should be valid from $products.
                 $callback_cat_key_for_error_kb = $category_key;
-                if (!isset($products[$category_key])) { // If somehow the parsed category_key isn't in products, don't use it for callback
-                    // This case should ideally be caught by !$category_key check, but as a safeguard:
-                    $callback_cat_key_for_error_kb = CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY; // Go way back
+                if (!isset($products[$category_key])) {
+                    $callback_cat_key_for_error_kb = CALLBACK_ADMIN_EDIT_PROD_SELECT_CATEGORY;
                      error_log("EP_SPRO_NOT_FOUND_INVALID_CAT_FOR_KB: Parsed category '{$category_key}' not in products. Using generic callback.");
                 }
                 $error_kb = json_encode(['inline_keyboard' => [[['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $callback_cat_key_for_error_kb]]]]);
@@ -912,35 +1044,35 @@ function processCallbackQuery($callback_query) {
             }
             $category_key = $matches_ids_set_type[1]; $product_id = $matches_ids_set_type[2];
 
-            global $products; if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
-            if(isset($products[$category_key][$product_id])) {
-                $old_type = $products[$category_key][$product_id]['type'];
-                $products[$category_key][$product_id]['type'] = $new_type;
-                if($new_type === 'instant' && !isset($products[$category_key][$product_id]['items'])) {
-                    $products[$category_key][$product_id]['items'] = [];
-                } elseif ($new_type === 'manual' && isset($products[$category_key][$product_id]['items'])) {
-                }
+            $pdo = getPDO();
+            $success = false;
 
-                if(writeJsonFile(PRODUCTS_FILE, $products)) {
-                    $p_updated_type = getProductDetails($category_key, $product_id);
-                    $kb_re_type = [
-                        [['text' => "✏️ Edit Name", 'callback_data' => CALLBACK_ADMIN_EDIT_NAME_PREFIX . "{$category_key}_{$product_id}"]],
-                        [['text' => "💲 Edit Price", 'callback_data' => CALLBACK_ADMIN_EDIT_PRICE_PREFIX . "{$category_key}_{$product_id}"]],
-                        [['text' => "ℹ️ Edit Info/Description", 'callback_data' => CALLBACK_ADMIN_EDIT_INFO_PREFIX . "{$category_key}_{$product_id}"]],
-                        [['text' => "🔄 Edit Type (current: {$p_updated_type['type']})", 'callback_data' => CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX . "{$category_key}_{$product_id}"]],
-                    ];
-                    if ($p_updated_type['type'] === 'instant') {
-                        $item_count_re = count($p_updated_type['items'] ?? []);
-                        $kb_re_type[] = [['text' => "🗂️ Manage Instant Items ({$item_count_re})", 'callback_data' => CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX . "{$category_key}_{$product_id}"]];
-                    }
-                    $kb_re_type[] = [['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $category_key]];
-                    editMessageText($chat_id, $message_id, "✅ Product type for '".htmlspecialchars($p_updated_type['name'])."' changed from '{$old_type}' to '{$new_type}'.\nEditing Product: <b>".htmlspecialchars($p_updated_type['name'])."</b>", json_encode(['inline_keyboard' => $kb_re_type]), 'HTML');
-                } else {
-                     editMessageText($chat_id, $message_id, "⚠️ Error saving product type change for '".htmlspecialchars($products[$category_key][$product_id]['name'])."'. Please check server logs/permissions.", json_encode(['inline_keyboard' => [[['text' => '« Back to Edit Type Prompt', 'callback_data' => CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX . $category_key . "_" . $product_id ]]]]));
+            // Get old type for message
+            $old_p = getProductDetails($category_key, $product_id);
+            $old_type = $old_p['type'] ?? 'unknown';
+
+            if ($pdo) {
+                $stmt = $pdo->prepare("UPDATE products p JOIN categories c ON p.category_id = c.id SET p.type = :type WHERE c.slug = :cat AND p.slug = :prod");
+                $success = $stmt->execute([':type' => $new_type, ':cat' => $category_key, ':prod' => $product_id]);
+            }
+
+            if($success) {
+                $p_updated_type = getProductDetails($category_key, $product_id);
+                $kb_re_type = [
+                    [['text' => "✏️ Edit Name", 'callback_data' => CALLBACK_ADMIN_EDIT_NAME_PREFIX . "{$category_key}_{$product_id}"]],
+                    [['text' => "💲 Edit Price", 'callback_data' => CALLBACK_ADMIN_EDIT_PRICE_PREFIX . "{$category_key}_{$product_id}"]],
+                    [['text' => "ℹ️ Edit Info/Description", 'callback_data' => CALLBACK_ADMIN_EDIT_INFO_PREFIX . "{$category_key}_{$product_id}"]],
+                    [['text' => "🔄 Edit Type (current: {$p_updated_type['type']})", 'callback_data' => CALLBACK_ADMIN_EDIT_TYPE_PROMPT_PREFIX . "{$category_key}_{$product_id}"]],
+                ];
+                if ($p_updated_type['type'] === 'instant') {
+                    $item_count_re = count($p_updated_type['items'] ?? []);
+                    $kb_re_type[] = [['text' => "🗂️ Manage Instant Items ({$item_count_re})", 'callback_data' => CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX . "{$category_key}_{$product_id}"]];
                 }
+                $kb_re_type[] = [['text' => '« Back to Product List', 'callback_data' => CALLBACK_ADMIN_EP_SCAT_PREFIX . $category_key]];
+                editMessageText($chat_id, $message_id, "✅ Product type for '".htmlspecialchars($p_updated_type['name'])."' changed from '{$old_type}' to '{$new_type}'.\nEditing Product: <b>".htmlspecialchars($p_updated_type['name'])."</b>", json_encode(['inline_keyboard' => $kb_re_type]), 'HTML');
             } else {
-                 error_log("Set Type: Product not found when attempting to change type. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
-                 editMessageText($chat_id, $message_id, "Error: Product not found when attempting to set type.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Product List', 'callback_data'=>CALLBACK_ADMIN_EP_SCAT_PREFIX.$category_key]]]]));
+                 error_log("Set Type: Product not found or DB error. Cat:{$category_key}, Prod:{$product_id}, Data: {$data}");
+                 editMessageText($chat_id, $message_id, "Error: Product not found or database error when attempting to set type.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Product List', 'callback_data'=>CALLBACK_ADMIN_EP_SCAT_PREFIX.$category_key]]]]));
             }
         }
         elseif (strpos($data, CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches)) {
@@ -977,47 +1109,64 @@ function processCallbackQuery($callback_query) {
             if (empty($p['items'])) {
                 editMessageText($chat_id, $message_id, "No items to remove for ".htmlspecialchars($p['name']).".", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Manage Items', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]])); return;
             }
-            $kb_items_remove = []; foreach($p['items'] as $idx => $item_content) { $display_text = strlen($item_content) > 30 ? substr(htmlspecialchars($item_content),0,27).'...' : htmlspecialchars($item_content); $kb_items_remove[] = [['text' => "❌ {$display_text}", 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX."{$category_key}_{$product_id}_{$idx}"]]; }
+            $kb_items_remove = [];
+            foreach($p['items'] as $item) {
+                $item_content = $item['content'];
+                $item_id = $item['id'];
+                $display_text = strlen($item_content) > 30 ? substr(htmlspecialchars($item_content),0,27).'...' : htmlspecialchars($item_content);
+                $kb_items_remove[] = [['text' => "❌ {$display_text}", 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX."{$category_key}_{$product_id}_{$item_id}"]];
+            }
             $kb_items_remove[] = [['text'=>'« Back to Manage Items', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]];
             editMessageText($chat_id, $message_id, "Select item to remove for ".htmlspecialchars($p['name']).":", json_encode(['inline_keyboard'=>$kb_items_remove]));
         }
         elseif (strpos($data, CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_REMOVE_INST_ITEM_DO_PREFIX, '/') . '(.+)_([^_]+)_(\d+)$/', $data, $matches)) {
-            $category_key = $matches[1]; $product_id = $matches[2]; $item_idx_to_remove = (int)$matches[3];
-            global $products; if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
+            $category_key = $matches[1]; $product_id = $matches[2]; $item_id_to_remove = (int)$matches[3];
+            $pdo = getPDO();
 
-            if(isset($products[$category_key][$product_id]['items'][$item_idx_to_remove])) {
-                array_splice($products[$category_key][$product_id]['items'], $item_idx_to_remove, 1);
-                if(writeJsonFile(PRODUCTS_FILE, $products)){
-                    $p_updated_after_remove = getProductDetails($category_key, $product_id);
-                    $items_count_after_remove = count($p_updated_after_remove['items'] ?? []);
-                    $kb_rows_after_remove = [[['text' => '➕ Add New Item', 'callback_data' => CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX . "{$category_key}_{$product_id}"]]];
-                    if ($items_count_after_remove > 0) $kb_rows_after_remove[] = [['text' => '➖ Remove An Item', 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX . "{$category_key}_{$product_id}"]];
-                    $kb_rows_after_remove[] = [['text' => '« Back to Edit Options', 'callback_data' => CALLBACK_ADMIN_EP_SPRO_PREFIX . "{$category_key}_{$product_id}"]];
-                    editMessageText($chat_id, $message_id, "✅ Item removed successfully.\n<b>Managing Instant Items for: ".htmlspecialchars($p_updated_after_remove['name'])."</b>\nCurrently stocked: {$items_count_after_remove} item(s).", json_encode(['inline_keyboard' => $kb_rows_after_remove]), 'HTML');
-                } else {
-                     error_log("Remove Inst Item Do: Failed to write products file after removing item. Cat:{$category_key}, Prod:{$product_id}, ItemIdx: {$item_idx_to_remove}");
-                     editMessageText($chat_id, $message_id, "⚠️ Error saving item removal. Please check server logs/permissions.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Manage Items', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]]));
-                }
+            $deleted = false;
+            if ($pdo) {
+                // Delete item from DB
+                $stmt = $pdo->prepare("DELETE FROM product_items WHERE id = :id");
+                $deleted = $stmt->execute([':id' => $item_id_to_remove]);
+            }
+
+            if($deleted){
+                $p_updated_after_remove = getProductDetails($category_key, $product_id);
+                $items_count_after_remove = count($p_updated_after_remove['items'] ?? []);
+                $kb_rows_after_remove = [[['text' => '➕ Add New Item', 'callback_data' => CALLBACK_ADMIN_ADD_INST_ITEM_PROMPT_PREFIX . "{$category_key}_{$product_id}"]]];
+                if ($items_count_after_remove > 0) $kb_rows_after_remove[] = [['text' => '➖ Remove An Item', 'callback_data' => CALLBACK_ADMIN_REMOVE_INST_ITEM_LIST_PREFIX . "{$category_key}_{$product_id}"]];
+                $kb_rows_after_remove[] = [['text' => '« Back to Edit Options', 'callback_data' => CALLBACK_ADMIN_EP_SPRO_PREFIX . "{$category_key}_{$product_id}"]];
+                editMessageText($chat_id, $message_id, "✅ Item removed successfully.\n<b>Managing Instant Items for: ".htmlspecialchars($p_updated_after_remove['name'])."</b>\nCurrently stocked: {$items_count_after_remove} item(s).", json_encode(['inline_keyboard' => $kb_rows_after_remove]), 'HTML');
             } else {
-                error_log("Remove Inst Item Do: Item not found at index. Cat:{$category_key}, Prod:{$product_id}, ItemIdx: {$item_idx_to_remove}, Data: {$data}");
-                editMessageText($chat_id, $message_id, "Error: Item not found or already removed. It might have been removed in another action.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Manage Items', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]]));
+                error_log("Remove Inst Item Do: Item not found or failed to delete. Cat:{$category_key}, Prod:{$product_id}, ItemID: {$item_id_to_remove}, Data: {$data}");
+                editMessageText($chat_id, $message_id, "Error: Item not found or failed to delete.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Manage Items', 'callback_data'=>CALLBACK_ADMIN_MANAGE_INSTANT_ITEMS_PREFIX."{$category_key}_{$product_id}"]]]]));
             }
         }
 
         elseif ($data === CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY) {
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
-            if (empty($products)) { editMessageText($chat_id, $message_id, "No categories found to remove products from.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]])); return; }
+            $pdo = getPDO();
+            $category_keys = [];
+            if ($pdo) $category_keys = $pdo->query("SELECT slug FROM categories")->fetchAll(PDO::FETCH_COLUMN);
+
+            if (empty($category_keys)) { editMessageText($chat_id, $message_id, "No categories found to remove products from.", json_encode(['inline_keyboard' => [[['text' => '« Back', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]]]])); return; }
             $keyboard_rows_rem_cat = [];
-            foreach (array_keys($products) as $ck_rem) { $keyboard_rows_rem_cat[] = [['text' => ucfirst(str_replace('_', ' ', $ck_rem)), 'callback_data' => CALLBACK_ADMIN_RP_SCAT_PREFIX . $ck_rem]]; }
+            foreach ($category_keys as $ck_rem) { $keyboard_rows_rem_cat[] = [['text' => ucfirst(str_replace('_', ' ', $ck_rem)), 'callback_data' => CALLBACK_ADMIN_RP_SCAT_PREFIX . $ck_rem]]; }
             $keyboard_rows_rem_cat[] = [['text' => '« Back to Product Mgt', 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]];
             editMessageText($chat_id, $message_id, "Select category to remove product from:", json_encode(['inline_keyboard' => $keyboard_rows_rem_cat]));
         }
         elseif (strpos($data, CALLBACK_ADMIN_RP_SCAT_PREFIX) === 0) {
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
             $category_key_rem_prod = substr($data, strlen(CALLBACK_ADMIN_RP_SCAT_PREFIX));
-            if (!isset($products[$category_key_rem_prod]) || empty($products[$category_key_rem_prod])) { editMessageText($chat_id, $message_id, "No products in category '".htmlspecialchars($category_key_rem_prod)."' to remove.", json_encode(['inline_keyboard' => [[['text' => '« Back to Select Category', 'callback_data' => CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]]]])); return; }
+            $pdo = getPDO();
+            $products_in_cat = [];
+            if ($pdo) {
+                $stmt = $pdo->prepare("SELECT p.slug, p.name FROM products p JOIN categories c ON p.category_id = c.id WHERE c.slug = :cat");
+                $stmt->execute([':cat' => $category_key_rem_prod]);
+                $products_in_cat = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            if (empty($products_in_cat)) { editMessageText($chat_id, $message_id, "No products in category '".htmlspecialchars($category_key_rem_prod)."' to remove.", json_encode(['inline_keyboard' => [[['text' => '« Back to Select Category', 'callback_data' => CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]]]])); return; }
             $keyboard_rows_rem_prod = [];
-            foreach ($products[$category_key_rem_prod] as $pid_rem => $pdetails_rem) { $keyboard_rows_rem_prod[] = [['text' => "➖ ".htmlspecialchars($pdetails_rem['name']), 'callback_data' => CALLBACK_ADMIN_RP_SPRO_PREFIX . "{$category_key_rem_prod}_{$pid_rem}"]]; }
+            foreach ($products_in_cat as $prod) { $keyboard_rows_rem_prod[] = [['text' => "➖ ".htmlspecialchars($prod['name']), 'callback_data' => CALLBACK_ADMIN_RP_SPRO_PREFIX . "{$category_key_rem_prod}_{$prod['slug']}"]]; }
             $keyboard_rows_rem_prod[] = [['text' => '« Back to Select Category', 'callback_data' => CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Select product to REMOVE from '".htmlspecialchars($category_key_rem_prod)."':\n(⚠️ This action is permanent!)", json_encode(['inline_keyboard' => $keyboard_rows_rem_prod]), 'HTML');
         }
@@ -1026,10 +1175,13 @@ function processCallbackQuery($callback_query) {
             $category_key_rem_confirm = null;
             $product_id_rem_confirm = null;
 
-            global $products;
-            if(empty($products)) $products = readJsonFile(PRODUCTS_FILE);
+            $pdo = getPDO();
+            $category_keys = [];
+            if ($pdo) $category_keys = $pdo->query("SELECT slug FROM categories")->fetchAll(PDO::FETCH_COLUMN);
 
-            foreach (array_keys($products) as $known_cat_key_rp) {
+            usort($category_keys, function($a, $b) { return strlen($b) - strlen($a); });
+
+            foreach ($category_keys as $known_cat_key_rp) {
                 if (strpos($ids_str_rp, $known_cat_key_rp . '_') === 0) {
                     $category_key_rem_confirm = $known_cat_key_rp;
                     $product_id_rem_confirm = substr($ids_str_rp, strlen($known_cat_key_rp) + 1);
@@ -1061,39 +1213,47 @@ function processCallbackQuery($callback_query) {
             $category_key_do_remove = $matches_rem_yes[1];
             $product_id_do_remove = $matches_rem_yes[2];
 
-            global $products;
-            if(empty($products)) { $products = readJsonFile(PRODUCTS_FILE); }
+            $pdo = getPDO();
+            $success = false;
+            $removed_prod_name_log = "Unknown";
 
-            if(isset($products[$category_key_do_remove][$product_id_do_remove])) {
-                $removed_prod_name_log = $products[$category_key_do_remove][$product_id_do_remove]['name'];
-                unset($products[$category_key_do_remove][$product_id_do_remove]);
+            // Fetch name for log before delete
+            $prod_to_del = getProductDetails($category_key_do_remove, $product_id_do_remove);
+            if ($prod_to_del) $removed_prod_name_log = $prod_to_del['name'];
 
-                if (writeJsonFile(PRODUCTS_FILE, $products)) {
-                    sendAdminConfirmationAndMenu($chat_id, "✅ Product '".htmlspecialchars($removed_prod_name_log)."' (ID: {$product_id_do_remove}) has been removed from category '".htmlspecialchars($category_key_do_remove)."'.", $user_id);
-                } else {
-                    editMessageText($chat_id, $message_id, "⚠️ Product '".htmlspecialchars($removed_prod_name_log)."' was removed from memory, but an ERROR occurred saving changes to disk. Please check server logs/permissions. The product might reappear if the bot restarts before a successful save.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Product Removal', 'callback_data'=>CALLBACK_ADMIN_RP_SCAT_PREFIX . $category_key_do_remove ], ['text'=>'« Product Mgt', 'callback_data'=>CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
-                }
+            if ($pdo) {
+                // DELETE FROM products
+                $stmt = $pdo->prepare("DELETE p FROM products p JOIN categories c ON p.category_id = c.id WHERE c.slug = :cat AND p.slug = :prod");
+                $stmt->execute([':cat' => $category_key_do_remove, ':prod' => $product_id_do_remove]);
+                if ($stmt->rowCount() > 0) $success = true;
+            }
+
+            if ($success) {
+                sendAdminConfirmationAndMenu($chat_id, "✅ Product '".htmlspecialchars($removed_prod_name_log)."' (ID: {$product_id_do_remove}) has been removed from category '".htmlspecialchars($category_key_do_remove)."'.", $user_id);
             } else {
-                editMessageText($chat_id, $message_id, "⚠️ Error: Product '".htmlspecialchars($product_id_do_remove)."' in category '".htmlspecialchars($category_key_do_remove)."' not found. It might have been already removed.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Product Removal', 'callback_data'=>CALLBACK_ADMIN_RP_SCAT_PREFIX . $category_key_do_remove ], ['text'=>'« Product Mgt', 'callback_data'=>CALLBACK_ADMIN_PROD_MANAGEMENT ]]]]));
+                editMessageText($chat_id, $message_id, "⚠️ Error: Product '".htmlspecialchars($product_id_do_remove)."' in category '".htmlspecialchars($category_key_do_remove)."' not found or failed to delete. It might have been already removed.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Product Removal', 'callback_data'=>CALLBACK_ADMIN_RP_SCAT_PREFIX . $category_key_do_remove ], ['text'=>'« Product Mgt', 'callback_data'=>CALLBACK_ADMIN_PROD_MANAGEMENT ]]]]));
             }
             return;
         }
         elseif (strpos($data, CALLBACK_ADMIN_RP_CONF_NO_PREFIX) === 0 && preg_match('/^' . preg_quote(CALLBACK_ADMIN_RP_CONF_NO_PREFIX, '/') . '(.+)_([^_]+)$/', $data, $matches_rem_no)) {
             $category_key_rem_no = $matches_rem_no[1];
-            global $products; $products = readJsonFile(PRODUCTS_FILE);
+
+            $pdo = getPDO();
+            $products_in_cat = [];
+            if ($pdo) {
+                $stmt = $pdo->prepare("SELECT p.slug, p.name FROM products p JOIN categories c ON p.category_id = c.id WHERE c.slug = :cat");
+                $stmt->execute([':cat' => $category_key_rem_no]);
+                $products_in_cat = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
             $keyboard_rows_rem_no_list = [];
-            if (isset($products[$category_key_rem_no]) && !empty($products[$category_key_rem_no])) {
-                 foreach ($products[$category_key_rem_no] as $pid_loop_no => $details_loop_no) { $keyboard_rows_rem_no_list[] = [['text' => "➖ ".htmlspecialchars($details_loop_no['name']), 'callback_data' => CALLBACK_ADMIN_RP_SPRO_PREFIX . "{$category_key_rem_no}_{$pid_loop_no}"]]; }
+            if (!empty($products_in_cat)) {
+                 foreach ($products_in_cat as $prod) { $keyboard_rows_rem_no_list[] = [['text' => "➖ ".htmlspecialchars($prod['name']), 'callback_data' => CALLBACK_ADMIN_RP_SPRO_PREFIX . "{$category_key_rem_no}_{$prod['slug']}"]]; }
             }
             $keyboard_rows_rem_no_list[] = [['text' => '« Back to Select Category', 'callback_data' => CALLBACK_ADMIN_REMOVE_PROD_SELECT_CATEGORY]];
             editMessageText($chat_id, $message_id, "Product removal cancelled. Select product to REMOVE from '".htmlspecialchars($category_key_rem_no)."':", json_encode(['inline_keyboard' => $keyboard_rows_rem_no_list]));
         }
     }
-    /*
-    elseif ($data === CALLBACK_BUY_SPOTIFY || $data === CALLBACK_BUY_SSH || $data === CALLBACK_BUY_V2RAY) {
-        // ... (This block was removed as it's handled by dynamic view_category_)
-    }
-    */
     // This is the general product selection handler
     elseif (
         preg_match('/^(.*)_([^_]+)$/', $data, $matches_prod_select) &&
@@ -1109,13 +1269,13 @@ function processCallbackQuery($callback_query) {
         (strpos($data, CALLBACK_VIEW_PURCHASED_ITEM_PREFIX) !== 0)
     ) {
         error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
-        global $products; $products = readJsonFile(PRODUCTS_FILE);
 
         $category_key_select = $matches_prod_select[1];
         $product_id_select = $matches_prod_select[2];
 
-        if (isset($products[$category_key_select][$product_id_select])) {
-            $product_selected = $products[$category_key_select][$product_id_select];
+        $product_selected = getProductDetails($category_key_select, $product_id_select);
+
+        if ($product_selected) {
             $plan_info_text = "🛍️ محصول: " . htmlspecialchars($product_selected['name']) . "\n";
             $plan_info_text .= "💰 قیمت: $" . htmlspecialchars($product_selected['price']) . "\n";
             $plan_info_text .= "ℹ️ توضیحات: " . nl2br(htmlspecialchars($product_selected['info'] ?? 'N/A')) . "\n\n";
@@ -1127,7 +1287,7 @@ function processCallbackQuery($callback_query) {
             ]]);
             editMessageText($chat_id, $message_id, $plan_info_text, $kb_prod_select, 'HTML');
         } else {
-             error_log("PROD_SEL_DEBUG: Product '{$category_key_select}_{$product_id_select}' not found in loaded products. Data: ".$data);
+             error_log("PROD_SEL_DEBUG: Product '{$category_key_select}_{$product_id_select}' not found. Data: ".$data);
              $kb_notfound_prod = json_encode(['inline_keyboard' => [[['text' => '📂 برگشت به دسته‌ها', 'callback_data' => 'view_category_' . $category_key_select ]], [['text' => '🏠 منوی اصلی', 'callback_data' => CALLBACK_BACK_TO_MAIN ]]]]);
              editMessageText($chat_id, $message_id, "😔 متأسفیم! محصول انتخاب‌شده پیدا نشد. ممکنه تازه حذف یا تغییر داده شده باشه.", $kb_notfound_prod);
         }
@@ -1349,7 +1509,54 @@ function processCallbackQuery($callback_query) {
         editMessageText($chat_id, $message_id, $welcome_text_main, json_encode($keyboard_main_array));
     }
 }
-?>
-```
 
-[end of functions.php]
+// ===================================================================
+//  COUPON FUNCTIONS
+// ===================================================================
+function getCoupon($code) {
+    $pdo = getPDO();
+    if (!$pdo) return null;
+    $stmt = $pdo->prepare("SELECT * FROM coupons WHERE code = :code");
+    $stmt->execute([':code' => $code]);
+    return $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+function redeemCoupon($code, $user_id) {
+    $pdo = getPDO();
+    if (!$pdo) return false;
+
+    try {
+        $pdo->beginTransaction();
+        $stmt = $pdo->prepare("SELECT * FROM coupons WHERE code = :code FOR UPDATE");
+        $stmt->execute([':code' => $code]);
+        $coupon = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$coupon) {
+            $pdo->rollBack();
+            return "not_found";
+        }
+
+        if ($coupon['used_count'] >= $coupon['max_uses']) {
+            $pdo->rollBack();
+            return "limit_reached";
+        }
+
+        if ($coupon['expires_at'] && strtotime($coupon['expires_at']) < time()) {
+            $pdo->rollBack();
+            return "expired";
+        }
+
+        // Update usage
+        $stmtUpd = $pdo->prepare("UPDATE coupons SET used_count = used_count + 1 WHERE id = :id");
+        $stmtUpd->execute([':id' => $coupon['id']]);
+
+        $pdo->commit();
+        return $coupon['value']; // Return discount value
+
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log("Coupon redeem error: " . $e->getMessage());
+        return false;
+    }
+}
+?>
