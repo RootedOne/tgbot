@@ -101,8 +101,9 @@ function setUserState($user_id, $state) {
     ensureUserExists($user_id);
     $pdo = getPDO();
     if (!$pdo) return;
-    $stmt = $pdo->prepare("INSERT INTO user_states (user_id, state_data, updated_at) VALUES (:uid, :data, NOW()) ON DUPLICATE KEY UPDATE state_data = :data, updated_at = NOW()");
-    $stmt->execute([':uid' => $user_id, ':data' => json_encode($state, JSON_UNESCAPED_UNICODE)]);
+    $json = json_encode($state, JSON_UNESCAPED_UNICODE);
+    $stmt = $pdo->prepare("INSERT INTO user_states (user_id, state_data, updated_at) VALUES (:uid, :data, NOW()) ON DUPLICATE KEY UPDATE state_data = :data_update, updated_at = NOW()");
+    $stmt->execute([':uid' => $user_id, ':data' => $json, ':data_update' => $json]);
 }
 
 function getUserState($user_id) {
@@ -187,11 +188,15 @@ function getUserData($user_id) {
 function updateUserData($user_id, $data) {
     $pdo = getPDO();
     if (!$pdo) return;
-    $stmt = $pdo->prepare("INSERT INTO users (id, balance, is_banned) VALUES (:id, :balance, :banned) ON DUPLICATE KEY UPDATE balance = :balance, is_banned = :banned");
+    $balance = $data['balance'] ?? 0;
+    $banned = !empty($data['is_banned']) ? 1 : 0;
+    $stmt = $pdo->prepare("INSERT INTO users (id, balance, is_banned) VALUES (:id, :balance, :banned) ON DUPLICATE KEY UPDATE balance = :balance_update, is_banned = :banned_update");
     $stmt->execute([
         ':id' => $user_id,
-        ':balance' => $data['balance'] ?? 0,
-        ':banned' => !empty($data['is_banned']) ? 1 : 0
+        ':balance' => $balance,
+        ':banned' => $banned,
+        ':balance_update' => $balance,
+        ':banned_update' => $banned
     ]);
 }
 
