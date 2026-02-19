@@ -46,17 +46,22 @@ echo "Migrating Users...\n";
 $userData = json_decode(file_get_contents('user_data.json'), true) ?: [];
 $userCount = 0;
 
-$stmtUser = $pdo->prepare("INSERT INTO users (id, balance, is_banned) VALUES (:id, :balance, :is_banned) ON DUPLICATE KEY UPDATE balance = :balance, is_banned = :is_banned");
+$stmtUser = $pdo->prepare("INSERT INTO users (id, balance, is_banned) VALUES (:id, :balance, :is_banned) ON DUPLICATE KEY UPDATE balance = :balance_update, is_banned = :is_banned_update");
 
 foreach ($userData as $userId => $data) {
     // Validate User ID
     if (!is_numeric($userId)) continue;
 
+    $balance = $data['balance'] ?? 0;
+    $is_banned = !empty($data['is_banned']) ? 1 : 0;
+
     try {
         $stmtUser->execute([
             ':id' => $userId,
-            ':balance' => $data['balance'] ?? 0,
-            ':is_banned' => !empty($data['is_banned']) ? 1 : 0
+            ':balance' => $balance,
+            ':is_banned' => $is_banned,
+            ':balance_update' => $balance,
+            ':is_banned_update' => $is_banned
         ]);
         $userCount++;
     } catch (PDOException $e) {
@@ -73,8 +78,8 @@ $catCount = 0;
 $prodCount = 0;
 $itemCount = 0;
 
-$stmtCat = $pdo->prepare("INSERT INTO categories (slug, name) VALUES (:slug, :name) ON DUPLICATE KEY UPDATE name = :name");
-$stmtProd = $pdo->prepare("INSERT INTO products (slug, category_id, name, price, type, description) VALUES (:slug, :category_id, :name, :price, :type, :description) ON DUPLICATE KEY UPDATE name=:name, price=:price, type=:type, description=:description");
+$stmtCat = $pdo->prepare("INSERT INTO categories (slug, name) VALUES (:slug, :name) ON DUPLICATE KEY UPDATE name = :name_update");
+$stmtProd = $pdo->prepare("INSERT INTO products (slug, category_id, name, price, type, description) VALUES (:slug, :category_id, :name, :price, :type, :description) ON DUPLICATE KEY UPDATE name=:name_update, price=:price_update, type=:type_update, description=:description_update");
 $stmtGetCatId = $pdo->prepare("SELECT id FROM categories WHERE slug = :slug");
 $stmtItem = $pdo->prepare("INSERT INTO product_items (product_id, content, is_sold) VALUES (:product_id, :content, 0)");
 
@@ -83,8 +88,17 @@ foreach ($productsData as $catKey => $products) {
 
     // Insert Category
     $catName = ucfirst(str_replace('_', ' ', $catKey));
-    $stmtCat->execute([':slug' => $catKey, ':name' => $catName]);
-    $catCount++;
+    try {
+        $stmtCat->execute([
+            ':slug' => $catKey,
+            ':name' => $catName,
+            ':name_update' => $catName
+        ]);
+        $catCount++;
+    } catch (PDOException $e) {
+        echo "Failed to migrate category $catKey: " . $e->getMessage() . "\n";
+        continue; // Skip products if category fails
+    }
 
     // Get Category ID
     $stmtGetCatId->execute([':slug' => $catKey]);
@@ -101,19 +115,25 @@ foreach ($productsData as $catKey => $products) {
         $type = $prodData['type'] ?? 'manual';
         // Validate ENUM
         if (!in_array($type, ['manual', 'instant'])) $type = 'manual';
+        $name = $prodData['name'] ?? 'Unknown';
+        $price = $prodData['price'] ?? 0;
+        $description = $prodData['info'] ?? null;
 
         // Insert Product
         try {
             $stmtProd->execute([
                 ':slug' => $prodKey,
                 ':category_id' => $catId,
-                ':name' => $prodData['name'] ?? 'Unknown',
-                ':price' => $prodData['price'] ?? 0,
+                ':name' => $name,
+                ':price' => $price,
                 ':type' => $type,
-                ':description' => $prodData['info'] ?? null
+                ':description' => $description,
+                ':name_update' => $name,
+                ':price_update' => $price,
+                ':type_update' => $type,
+                ':description_update' => $description
             ]);
             $prodCount++;
-            $prodId = $pdo->lastInsertId();
 
             // If updated (duplicate key), lastInsertId might not return the ID correctly depending on driver/config.
             // Let's fetch it explicitly to be safe for items insertion.
@@ -153,44 +173,49 @@ $stmtFindProdByName = $pdo->prepare("SELECT id FROM products WHERE name = :name 
 $stmtPurchase = $pdo->prepare("INSERT INTO purchases (user_id, product_id, product_name, price, delivered_item_content, date) VALUES (:user_id, :product_id, :product_name, :price, :delivered_item_content, :date)");
 
 // Begin transaction for bulk purchases
-$pdo->beginTransaction();
+try {
+    $pdo->beginTransaction();
 
-foreach ($purchasesData as $userId => $purchases) {
-    if (!is_numeric($userId)) continue;
+    foreach ($purchasesData as $userId => $purchases) {
+        if (!is_numeric($userId)) continue;
 
-    // Ensure user exists (if purchase exists but user not in user_data.json, create placeholder)
-    $stmtCheckUser = $pdo->prepare("SELECT id FROM users WHERE id = :id");
-    $stmtCheckUser->execute([':id' => $userId]);
-    if (!$stmtCheckUser->fetch()) {
-        $stmtCreateUser = $pdo->prepare("INSERT IGNORE INTO users (id) VALUES (:id)");
-        $stmtCreateUser->execute([':id' => $userId]);
-    }
+        // Ensure user exists (if purchase exists but user not in user_data.json, create placeholder)
+        $stmtCheckUser = $pdo->prepare("SELECT id FROM users WHERE id = :id");
+        $stmtCheckUser->execute([':id' => $userId]);
+        if (!$stmtCheckUser->fetch()) {
+            $stmtCreateUser = $pdo->prepare("INSERT IGNORE INTO users (id) VALUES (:id)");
+            $stmtCreateUser->execute([':id' => $userId]);
+        }
 
-    foreach ($purchases as $p) {
-        $prodName = $p['product_name'] ?? 'Unknown';
+        foreach ($purchases as $p) {
+            $prodName = $p['product_name'] ?? 'Unknown';
 
-        // Try to link to a product
-        $stmtFindProdByName->execute([':name' => $prodName]);
-        $prodId = $stmtFindProdByName->fetchColumn() ?: null;
+            // Try to link to a product
+            $stmtFindProdByName->execute([':name' => $prodName]);
+            $prodId = $stmtFindProdByName->fetchColumn() ?: null;
 
-        $date = $p['date'] ?? date('Y-m-d H:i:s');
+            $date = $p['date'] ?? date('Y-m-d H:i:s');
 
-        try {
-            $stmtPurchase->execute([
-                ':user_id' => $userId,
-                ':product_id' => $prodId,
-                ':product_name' => $prodName,
-                ':price' => is_numeric($p['price'] ?? null) ? $p['price'] : 0, // Handle "Manually Added"
-                ':delivered_item_content' => $p['delivered_item_content'] ?? null,
-                ':date' => $date
-            ]);
-            $purchaseCount++;
-        } catch (PDOException $e) {
-             echo "Failed to migrate purchase for user $userId: " . $e->getMessage() . "\n";
+            try {
+                $stmtPurchase->execute([
+                    ':user_id' => $userId,
+                    ':product_id' => $prodId,
+                    ':product_name' => $prodName,
+                    ':price' => is_numeric($p['price'] ?? null) ? $p['price'] : 0, // Handle "Manually Added"
+                    ':delivered_item_content' => $p['delivered_item_content'] ?? null,
+                    ':date' => $date
+                ]);
+                $purchaseCount++;
+            } catch (PDOException $e) {
+                 echo "Failed to migrate purchase for user $userId: " . $e->getMessage() . "\n";
+            }
         }
     }
+    $pdo->commit();
+} catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    echo "Transaction failed for purchases: " . $e->getMessage() . "\n";
 }
-$pdo->commit();
 echo "Migrated $purchaseCount purchases.\n";
 
 
@@ -199,29 +224,27 @@ echo "Migrating Coupons...\n";
 $couponsData = json_decode(file_get_contents('coupons.json'), true) ?: [];
 $couponCount = 0;
 
-$stmtCoupon = $pdo->prepare("INSERT INTO coupons (code, value, type, max_uses, used_count) VALUES (:code, :value, :type, :max_uses, :used_count) ON DUPLICATE KEY UPDATE value = :value");
+$stmtCoupon = $pdo->prepare("INSERT INTO coupons (code, value, type, max_uses, used_count) VALUES (:code, :value, :type, :max_uses, :used_count) ON DUPLICATE KEY UPDATE value = :value_update");
 
 foreach ($couponsData as $code => $cData) {
     if (empty($code)) continue;
     // Assuming JSON structure: "CODE": { "value": 10, "type": "fixed", ... }
-    // Since file is empty [] I can't be sure, but this is safe guess.
-    // If it's an array of objects: [ {"code": "...", ...} ] logic differs.
-    // Given other files are associative keyed by ID, I'll assume that.
-    // But coupons.json reads as `[]` in list_files, implying indexed array?
-    // Let's assume generic object iteration.
 
     // If $couponsData is indexed array of objects:
     if (isset($cData['code'])) {
         $code = $cData['code'];
     }
 
+    $value = $cData['value'] ?? 0;
+
     try {
         $stmtCoupon->execute([
             ':code' => $code,
-            ':value' => $cData['value'] ?? 0,
+            ':value' => $value,
             ':type' => $cData['type'] ?? 'fixed',
             ':max_uses' => $cData['max_uses'] ?? 1,
-            ':used_count' => $cData['used_count'] ?? 0
+            ':used_count' => $cData['used_count'] ?? 0,
+            ':value_update' => $value
         ]);
         $couponCount++;
     } catch (PDOException $e) {
@@ -236,7 +259,7 @@ echo "Migrating User States...\n";
 $statesData = json_decode(file_get_contents('user_states.json'), true) ?: [];
 $stateCount = 0;
 
-$stmtState = $pdo->prepare("INSERT INTO user_states (user_id, state_data, updated_at) VALUES (:user_id, :state_data, NOW()) ON DUPLICATE KEY UPDATE state_data = :state_data, updated_at = NOW()");
+$stmtState = $pdo->prepare("INSERT INTO user_states (user_id, state_data, updated_at) VALUES (:user_id, :state_data, NOW()) ON DUPLICATE KEY UPDATE state_data = :state_data_update, updated_at = NOW()");
 
 foreach ($statesData as $userId => $state) {
     if (!is_numeric($userId)) continue;
@@ -247,10 +270,13 @@ foreach ($statesData as $userId => $state) {
         $stmtCreateUser->execute([':id' => $userId]);
     }
 
+    $jsonState = json_encode($state, JSON_UNESCAPED_UNICODE);
+
     try {
         $stmtState->execute([
             ':user_id' => $userId,
-            ':state_data' => json_encode($state, JSON_UNESCAPED_UNICODE)
+            ':state_data' => $jsonState,
+            ':state_data_update' => $jsonState
         ]);
         $stateCount++;
     } catch (PDOException $e) {

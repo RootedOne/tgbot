@@ -218,8 +218,8 @@ function addUserBalance($user_id, $amount) {
     if (!is_numeric($amount) || $amount < 0) return false;
     $pdo = getPDO();
     if (!$pdo) return false;
-    $stmt = $pdo->prepare("INSERT INTO users (id, balance) VALUES (:uid, :amount) ON DUPLICATE KEY UPDATE balance = balance + :amount");
-    return $stmt->execute([':uid' => $user_id, ':amount' => $amount]);
+    $stmt = $pdo->prepare("INSERT INTO users (id, balance) VALUES (:uid, :amount) ON DUPLICATE KEY UPDATE balance = balance + :amount_update");
+    return $stmt->execute([':uid' => $user_id, ':amount' => $amount, ':amount_update' => $amount]);
 }
 
 // --- User Purchase and Product Functions ---
@@ -1316,10 +1316,11 @@ function processCallbackQuery($callback_query) {
         }
     }
     // This is the general product selection handler
+    // Attempt to parse as product selection using robust parser
     elseif (
-        preg_match('/^(.*)_([^_]+)$/', $data, $matches_prod_select) &&
+        ($parsed_product = parseProductCallback($data)) &&
         (strpos($data, 'view_category_') !== 0) &&
-        (strpos($data, 'admin_') !== 0) && // Ensure it's not an admin callback caught here by mistake
+        (strpos($data, 'admin_') !== 0) &&
         ($data !== CALLBACK_BACK_TO_MAIN) &&
         ($data !== CALLBACK_MY_PRODUCTS) &&
         ($data !== CALLBACK_SUPPORT) &&
@@ -1331,8 +1332,8 @@ function processCallbackQuery($callback_query) {
     ) {
         error_log("PROD_SEL_DEBUG: Product selection handler entered for data: '" . $data . "'");
 
-        $category_key_select = $matches_prod_select[1];
-        $product_id_select = $matches_prod_select[2];
+        $category_key_select = $parsed_product['category'];
+        $product_id_select = $parsed_product['product'];
 
         $product_selected = getProductDetails($category_key_select, $product_id_select);
 
