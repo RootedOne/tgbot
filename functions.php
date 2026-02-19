@@ -25,12 +25,43 @@ function getPDO() {
         try {
             $pdo = new PDO($dsn, DB_USER, DB_PASSWORD, $options);
             $pdo->exec("SET time_zone = '+00:00'");
+
+            // Auto-initialize if needed
+            initializeDatabase($pdo);
+
         } catch (\PDOException $e) {
             error_log("Database Connection Error: " . $e->getMessage());
             return null;
         }
     }
     return $pdo;
+}
+
+function initializeDatabase($pdo) {
+    try {
+        // Check if user_states table exists
+        $stmt = $pdo->query("SHOW TABLES LIKE 'user_states'");
+        if ($stmt->fetch()) return;
+
+        // If not, run schema
+        $schemaPath = __DIR__ . '/schema.sql';
+        if (!file_exists($schemaPath)) {
+            error_log("schema.sql not found for auto-initialization.");
+            return;
+        }
+
+        $schema = file_get_contents($schemaPath);
+        $statements = array_filter(array_map('trim', explode(';', $schema)));
+
+        foreach ($statements as $stmt) {
+            if (!empty($stmt)) {
+                $pdo->exec($stmt);
+            }
+        }
+        error_log("Database initialized successfully from schema.sql.");
+    } catch (Exception $e) {
+        error_log("Database initialization failed: " . $e->getMessage());
+    }
 }
 
 // ===================================================================

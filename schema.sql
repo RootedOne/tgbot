@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS purchases (
 -- User States Table (For Conversation State)
 CREATE TABLE IF NOT EXISTS user_states (
     user_id BIGINT UNSIGNED PRIMARY KEY,
-    state_data JSON NOT NULL,
+    state_data LONGTEXT NOT NULL,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
