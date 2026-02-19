@@ -2,11 +2,94 @@
 // FILE: config.php
 // All bot configurations.
 
+// --- Environment Helper Functions ---
+
+// Function to load .env file if it exists
+if (!function_exists('loadEnv')) {
+    function loadEnv($path) {
+        if (!file_exists($path)) {
+            return;
+        }
+        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            if (strpos(trim($line), '#') === 0) continue;
+            list($name, $value) = explode('=', $line, 2);
+            $name = trim($name);
+            $value = trim($value);
+            if (!array_key_exists($name, $_SERVER) && !array_key_exists($name, $_ENV)) {
+                putenv(sprintf('%s=%s', $name, $value));
+                $_ENV[$name] = $value;
+                $_SERVER[$name] = $value;
+            }
+        }
+    }
+}
+
+// Function to update or add a key-value pair in .env file
+if (!function_exists('updateEnv')) {
+    function updateEnv($key, $value) {
+        $path = __DIR__ . '/.env';
+        if (!file_exists($path)) {
+            // Create empty .env if missing
+            file_put_contents($path, '');
+        }
+
+        // Prepare the new line
+        $newLine = "{$key}={$value}";
+
+        // Read file content
+        $content = file_get_contents($path);
+
+        // Check if key exists
+        $pattern = "/^{$key}=.*/m";
+        if (preg_match($pattern, $content)) {
+            // Replace existing line
+            $content = preg_replace($pattern, $newLine, $content);
+        } else {
+            // Append new line
+            // Ensure there is a newline before appending if content is not empty and doesn't end with newline
+            if (!empty($content) && substr($content, -1) !== "\n") {
+                $content .= "\n";
+            }
+            $content .= $newLine . "\n";
+        }
+
+        // Write back to file
+        if (file_put_contents($path, $content) !== false) {
+            // Update runtime environment
+            putenv("{$key}={$value}");
+            $_ENV[$key] = $value;
+            $_SERVER[$key] = $value;
+            return true;
+        }
+        return false;
+    }
+}
+
+// Load environment variables from .env file
+loadEnv(__DIR__ . '/.env');
+
 // --- Bot Token ---
-define('API_TOKEN', '7954827027:AAFBRf86q1pv6Gf0L4sUlrKQjaSubSqNtEk'); // Replace with your actual token
+$token = getenv('TELEGRAM_BOT_TOKEN');
+
+if (!$token) {
+    // Check if we are in a CLI environment to print a helpful message
+    if (php_sapi_name() === 'cli') {
+        echo "Error: TELEGRAM_BOT_TOKEN not set in .env file or environment variables.\n";
+        echo "Please create a .env file based on .env.example and set your token.\n";
+        exit(1);
+    } else {
+        // For web requests, log the error and exit securely
+        error_log("TELEGRAM_BOT_TOKEN not set.");
+        http_response_code(500);
+        die("Internal Server Error: Configuration missing.");
+    }
+}
+
+define('API_TOKEN', $token);
 
 // --- Admin Configuration ---
-// Admin list is now managed in bot_config_data.json
+// Admin list is now managed via .env (BOT_ADMINS)
 
 // --- State Machine Constants ---
 define('STATE_ADMIN_ADDING_PROD_NAME', 'admin_adding_prod_name');

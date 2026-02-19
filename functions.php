@@ -6,7 +6,7 @@ define('STATE_FILE', 'user_states.json');
 define('PRODUCTS_FILE', 'products.json');
 define('USER_PURCHASES_FILE', 'user_purchases.json');
 define('USER_DATA_FILE', 'user_data.json');
-define('BOT_CONFIG_DATA_FILE', 'bot_config_data.json');
+// BOT_CONFIG_DATA_FILE is no longer used, config is in .env
 
 // Constants are now defined in config.php
 // ===================================================================
@@ -33,8 +33,55 @@ function getUserState($user_id) { $states = readJsonFile(STATE_FILE); return $st
 function clearUserState($user_id) { $states = readJsonFile(STATE_FILE); if (isset($states[$user_id])) { unset($states[$user_id]); if(!writeJsonFile(STATE_FILE, $states)){error_log("Failed to write user states after clearing for {$user_id}");}} }
 
 // --- Bot Config Data Functions ---
-function getBotConfig() { return readJsonFile(BOT_CONFIG_DATA_FILE); }
-function saveBotConfig($config_data) { if(!writeJsonFile(BOT_CONFIG_DATA_FILE, $config_data)){error_log("Failed to save bot config data.");} }
+function getBotConfig() {
+    $admins_str = getenv('BOT_ADMINS');
+    $admins = $admins_str ? explode(',', $admins_str) : [];
+    // Clean up admin IDs (trim and cast to int)
+    $admins = array_map(function($id) { return (int)trim($id); }, $admins);
+
+    $layout_mode = getenv('MAIN_MENU_LAYOUT_MODE') ?: 'auto';
+    $columns = getenv('MAIN_MENU_COLUMNS') ?: 1;
+
+    $manual_layout_str = getenv('MAIN_MENU_MANUAL_LAYOUT');
+    $manual_layout = $manual_layout_str ? json_decode($manual_layout_str, true) : [];
+
+    return [
+        'admins' => $admins,
+        'payment_card_holder' => getenv('PAYMENT_CARD_HOLDER') ?: 'Not Set',
+        'payment_card_number' => getenv('PAYMENT_CARD_NUMBER') ?: 'Not Set',
+        'main_menu_layout_mode' => $layout_mode,
+        'main_menu_columns' => (int)$columns,
+        'main_menu_manual_layout' => $manual_layout
+    ];
+}
+
+function saveBotConfig($config_data) {
+    if (isset($config_data['admins']) && is_array($config_data['admins'])) {
+        $admins_str = implode(',', $config_data['admins']);
+        updateEnv('BOT_ADMINS', $admins_str);
+    }
+
+    if (isset($config_data['payment_card_holder'])) {
+        updateEnv('PAYMENT_CARD_HOLDER', $config_data['payment_card_holder']);
+    }
+
+    if (isset($config_data['payment_card_number'])) {
+        updateEnv('PAYMENT_CARD_NUMBER', $config_data['payment_card_number']);
+    }
+
+    if (isset($config_data['main_menu_layout_mode'])) {
+        updateEnv('MAIN_MENU_LAYOUT_MODE', $config_data['main_menu_layout_mode']);
+    }
+
+    if (isset($config_data['main_menu_columns'])) {
+        updateEnv('MAIN_MENU_COLUMNS', $config_data['main_menu_columns']);
+    }
+
+    if (isset($config_data['main_menu_manual_layout'])) {
+        updateEnv('MAIN_MENU_MANUAL_LAYOUT', json_encode($config_data['main_menu_manual_layout'], JSON_UNESCAPED_UNICODE));
+    }
+}
+
 function getAdminIds() { $config = getBotConfig(); return $config['admins'] ?? []; }
 function getPaymentDetails() { $config = getBotConfig(); return ['card_holder' => $config['payment_card_holder'] ?? 'Not Set', 'card_number' => $config['payment_card_number'] ?? 'Not Set']; }
 function updatePaymentDetails($new_holder, $new_number) { $config = getBotConfig(); if ($new_holder !== null) { $config['payment_card_holder'] = $new_holder; } if ($new_number !== null) { $config['payment_card_number'] = $new_number; } saveBotConfig($config); }
