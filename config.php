@@ -2,6 +2,8 @@
 // FILE: config.php
 // All bot configurations.
 
+// --- Environment Helper Functions ---
+
 // Function to load .env file if it exists
 if (!function_exists('loadEnv')) {
     function loadEnv($path) {
@@ -20,6 +22,47 @@ if (!function_exists('loadEnv')) {
                 $_SERVER[$name] = $value;
             }
         }
+    }
+}
+
+// Function to update or add a key-value pair in .env file
+if (!function_exists('updateEnv')) {
+    function updateEnv($key, $value) {
+        $path = __DIR__ . '/.env';
+        if (!file_exists($path)) {
+            // Create empty .env if missing
+            file_put_contents($path, '');
+        }
+
+        // Prepare the new line
+        $newLine = "{$key}={$value}";
+
+        // Read file content
+        $content = file_get_contents($path);
+
+        // Check if key exists
+        $pattern = "/^{$key}=.*/m";
+        if (preg_match($pattern, $content)) {
+            // Replace existing line
+            $content = preg_replace($pattern, $newLine, $content);
+        } else {
+            // Append new line
+            // Ensure there is a newline before appending if content is not empty and doesn't end with newline
+            if (!empty($content) && substr($content, -1) !== "\n") {
+                $content .= "\n";
+            }
+            $content .= $newLine . "\n";
+        }
+
+        // Write back to file
+        if (file_put_contents($path, $content) !== false) {
+            // Update runtime environment
+            putenv("{$key}={$value}");
+            $_ENV[$key] = $value;
+            $_SERVER[$key] = $value;
+            return true;
+        }
+        return false;
     }
 }
 
@@ -46,7 +89,7 @@ if (!$token) {
 define('API_TOKEN', $token);
 
 // --- Admin Configuration ---
-// Admin list is now managed in bot_config_data.json
+// Admin list is now managed via .env (BOT_ADMINS)
 
 // --- State Machine Constants ---
 define('STATE_ADMIN_ADDING_PROD_NAME', 'admin_adding_prod_name');
