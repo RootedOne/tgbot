@@ -16,14 +16,15 @@ CREATE TABLE IF NOT EXISTS categories (
 -- Products Table
 CREATE TABLE IF NOT EXISTS products (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    slug VARCHAR(255) NOT NULL UNIQUE, -- The ID used in JSON (e.g., 'f1')
+    slug VARCHAR(255) NOT NULL, -- The ID used in JSON (e.g., 'f1')
     category_id INT UNSIGNED NOT NULL,
     name VARCHAR(255) NOT NULL,
     price DECIMAL(15, 2) NOT NULL,
     type ENUM('manual', 'instant') NOT NULL DEFAULT 'manual',
     description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
+    UNIQUE KEY idx_slug_category (slug, category_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Product Items Table (Inventory for Instant Delivery)

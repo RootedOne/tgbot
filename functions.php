@@ -64,6 +64,30 @@ function initializeDatabase($pdo) {
     }
 }
 
+function ensureUserExists($user_id) {
+    $pdo = getPDO();
+    if (!$pdo) return;
+    $stmt = $pdo->prepare("INSERT IGNORE INTO users (id) VALUES (:id)");
+    $stmt->execute([':id' => $user_id]);
+}
+
+function parseProductCallback($data) {
+    $pdo = getPDO();
+    $category_keys = [];
+    if ($pdo) $category_keys = $pdo->query("SELECT slug FROM categories")->fetchAll(PDO::FETCH_COLUMN);
+
+    // Sort by length descending to match longest category slug first
+    usort($category_keys, function($a, $b) { return strlen($b) - strlen($a); });
+
+    foreach ($category_keys as $ck) {
+        if (strpos($data, $ck . '_') === 0) {
+            $product_id = substr($data, strlen($ck) + 1);
+            return ['category' => $ck, 'product' => $product_id];
+        }
+    }
+    return null;
+}
+
 // ===================================================================
 //  STATE & DATA MANAGEMENT FUNCTIONS
 // ===================================================================
@@ -74,6 +98,7 @@ function writeJsonFile($filename, $data) {
 }
 
 function setUserState($user_id, $state) {
+    ensureUserExists($user_id);
     $pdo = getPDO();
     if (!$pdo) return;
     $stmt = $pdo->prepare("INSERT INTO user_states (user_id, state_data, updated_at) VALUES (:uid, :data, NOW()) ON DUPLICATE KEY UPDATE state_data = :data, updated_at = NOW()");

@@ -28,10 +28,6 @@ if (isset($update->message)) {
     $user_id = $message->from->id;
     $text = $message->text ?? null;
     $is_admin = in_array($user_id, getAdminIds());
-
-    // Ensure user exists in DB to prevent FK errors when setting state
-    ensureUserExists($user_id);
-
     $user_state = getUserState($user_id);
 
     // Check if user is banned
