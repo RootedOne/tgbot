@@ -2,8 +2,48 @@
 // FILE: config.php
 // All bot configurations.
 
+// Function to load .env file if it exists
+if (!function_exists('loadEnv')) {
+    function loadEnv($path) {
+        if (!file_exists($path)) {
+            return;
+        }
+        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        foreach ($lines as $line) {
+            if (strpos(trim($line), '#') === 0) continue;
+            list($name, $value) = explode('=', $line, 2);
+            $name = trim($name);
+            $value = trim($value);
+            if (!array_key_exists($name, $_SERVER) && !array_key_exists($name, $_ENV)) {
+                putenv(sprintf('%s=%s', $name, $value));
+                $_ENV[$name] = $value;
+                $_SERVER[$name] = $value;
+            }
+        }
+    }
+}
+
+// Load environment variables from .env file
+loadEnv(__DIR__ . '/.env');
+
 // --- Bot Token ---
-define('API_TOKEN', '7954827027:AAFBRf86q1pv6Gf0L4sUlrKQjaSubSqNtEk'); // Replace with your actual token
+$token = getenv('TELEGRAM_BOT_TOKEN');
+
+if (!$token) {
+    // Check if we are in a CLI environment to print a helpful message
+    if (php_sapi_name() === 'cli') {
+        echo "Error: TELEGRAM_BOT_TOKEN not set in .env file or environment variables.\n";
+        echo "Please create a .env file based on .env.example and set your token.\n";
+        exit(1);
+    } else {
+        // For web requests, log the error and exit securely
+        error_log("TELEGRAM_BOT_TOKEN not set.");
+        http_response_code(500);
+        die("Internal Server Error: Configuration missing.");
+    }
+}
+
+define('API_TOKEN', $token);
 
 // --- Admin Configuration ---
 // Admin list is now managed in bot_config_data.json

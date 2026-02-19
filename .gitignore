@@ -1,0 +1,5 @@
+.env
+error_log
+user_data.json
+user_purchases.json
+user_states.json
