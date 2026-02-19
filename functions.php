@@ -340,6 +340,47 @@ function generateCategoryKeyboard($category_key) {
     return json_encode($keyboard);
 }
 
+// --- Helper Functions for Navigation & State Reset ---
+
+function getAdminPanelKeyboard() {
+    return [
+        'inline_keyboard' => [
+            [['text' => "📦 Product Management", 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]],
+            [['text' => "🗂️ Category Management", 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]],
+            [['text' => "📊 View Bot Stats", 'callback_data' => CALLBACK_ADMIN_VIEW_STATS]],
+            [['text' => "🎨 Main Menu UI", 'callback_data' => CALLBACK_ADMIN_MAIN_MENU_UI]],
+            [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]
+        ]
+    ];
+}
+
+function sendUserConfirmationAndMenu($chat_id, $confirmation_text, $user_id, $is_admin = null) {
+    clearUserState($user_id);
+    sendMessage($chat_id, $confirmation_text);
+
+    // Check if user is admin to generate correct menu (though usually main menu is same, but is_admin flag adds Admin Panel button)
+    if ($is_admin === null) {
+        $is_admin = in_array($user_id, getAdminIds());
+    }
+    $menu_keyboard = generateDynamicMainMenuKeyboard($is_admin);
+
+    // User Post-Task Rule: User Main Menu and its full keyboard.
+    $first_name = "User"; // We don't have name easily here without fetching, but the menu is the important part.
+    // If we want a welcome message with name, we'd need to fetch user info or just send the menu with a generic header.
+    // The requirement says "new message containing the User Main Menu".
+    // Let's use a standard header for the menu.
+    sendMessage($chat_id, "🏠 <b>منوی اصلی</b> 👇", json_encode($menu_keyboard), 'HTML');
+}
+
+function sendAdminConfirmationAndMenu($chat_id, $confirmation_text, $user_id) {
+    clearUserState($user_id);
+    sendMessage($chat_id, $confirmation_text);
+
+    // Admin Post-Task Rule: Admin Panel main view.
+    $admin_keyboard = getAdminPanelKeyboard();
+    sendMessage($chat_id, "⚙️ <b>Admin Panel</b> ⚙️", json_encode($admin_keyboard), 'HTML');
+}
+
 // ===================================================================
 //  CALLBACK QUERY PROCESSOR
 // ===================================================================
@@ -482,16 +523,7 @@ function processCallbackQuery($callback_query) {
         if (!$is_admin) {  sendMessage($chat_id, "Access denied."); return; }
 
         if ($data === CALLBACK_ADMIN_PANEL) {
-            $admin_panel_keyboard_def = [
-                'inline_keyboard' => [
-                    [['text' => "📦 Product Management", 'callback_data' => CALLBACK_ADMIN_PROD_MANAGEMENT]],
-                    [['text' => "🗂️ Category Management", 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]],
-                    [['text' => "📊 View Bot Stats", 'callback_data' => CALLBACK_ADMIN_VIEW_STATS]],
-                    [['text' => "🎨 Main Menu UI", 'callback_data' => CALLBACK_ADMIN_MAIN_MENU_UI]],
-                    [['text' => '« Back to Main Menu', 'callback_data' => CALLBACK_BACK_TO_MAIN]]
-                ]
-            ];
-            editMessageText($chat_id, $message_id, "⚙️ Admin Panel ⚙️", json_encode($admin_panel_keyboard_def));
+            editMessageText($chat_id, $message_id, "⚙️ Admin Panel ⚙️", json_encode(getAdminPanelKeyboard()));
             return;
         }
         elseif ($data === CALLBACK_ADMIN_MAIN_MENU_UI) {
@@ -702,15 +734,8 @@ function processCallbackQuery($callback_query) {
                 } else {
                     $success_message .= " has been removed successfully.";
                 }
-                $cat_mgt_keyboard_after_delete = [
-                    'inline_keyboard' => [
-                        [['text' => "➕ Add Category", 'callback_data' => CALLBACK_ADMIN_ADD_CATEGORY_PROMPT]],
-                        [['text' => "✏️ Edit Category Name", 'callback_data' => CALLBACK_ADMIN_EDIT_CATEGORY_SELECT]],
-                        [['text' => "➖ Remove Category", 'callback_data' => CALLBACK_ADMIN_REMOVE_CATEGORY_SELECT]],
-                        [['text' => '« Back to Admin Panel', 'callback_data' => CALLBACK_ADMIN_PANEL]]
-                    ]
-                ];
-                editMessageText($chat_id, $message_id, $success_message . "\n\n🗂️ Category Management 🗂️\nSelect an action:", json_encode($cat_mgt_keyboard_after_delete), 'HTML');
+                // Post-Task Rule: Send confirmation then Admin Panel
+                sendAdminConfirmationAndMenu($chat_id, $success_message, $user_id);
             } else {
                 error_log("Failed to write products file after removing category {$category_to_delete}. The category might still appear until bot restart if memory wasn't updated from disk properly.");
                 editMessageText($chat_id, $message_id, "⚠️ Failed to save changes after attempting to remove category '<b>{$display_cat_name_deleted}</b>'. Please check server logs or file permissions. The category might not be fully removed from the data file.", json_encode(['inline_keyboard' => [[['text' => '« Back to Category Mgt', 'callback_data' => CALLBACK_ADMIN_CATEGORY_MANAGEMENT]]]]), 'HTML');
@@ -1044,7 +1069,7 @@ function processCallbackQuery($callback_query) {
                 unset($products[$category_key_do_remove][$product_id_do_remove]);
 
                 if (writeJsonFile(PRODUCTS_FILE, $products)) {
-                    editMessageText($chat_id, $message_id, "✅ Product '".htmlspecialchars($removed_prod_name_log)."' (ID: {$product_id_do_remove}) has been removed from category '".htmlspecialchars($category_key_do_remove)."'.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Product Removal', 'callback_data'=>CALLBACK_ADMIN_RP_SCAT_PREFIX . $category_key_do_remove ], ['text'=>'« Product Mgt', 'callback_data'=>CALLBACK_ADMIN_PROD_MANAGEMENT ]]]]));
+                    sendAdminConfirmationAndMenu($chat_id, "✅ Product '".htmlspecialchars($removed_prod_name_log)."' (ID: {$product_id_do_remove}) has been removed from category '".htmlspecialchars($category_key_do_remove)."'.", $user_id);
                 } else {
                     editMessageText($chat_id, $message_id, "⚠️ Product '".htmlspecialchars($removed_prod_name_log)."' was removed from memory, but an ERROR occurred saving changes to disk. Please check server logs/permissions. The product might reappear if the bot restarts before a successful save.", json_encode(['inline_keyboard'=>[[['text'=>'« Back to Product Removal', 'callback_data'=>CALLBACK_ADMIN_RP_SCAT_PREFIX . $category_key_do_remove ], ['text'=>'« Product Mgt', 'callback_data'=>CALLBACK_ADMIN_PROD_MANAGEMENT]]]]));
                 }
